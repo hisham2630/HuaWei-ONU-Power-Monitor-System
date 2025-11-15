@@ -1,15 +1,24 @@
 # ONU Power Monitor
 
-A Node.js script to automatically log into an ONU (Optical Network Unit) device and extract RX Optical Power information.
+A comprehensive Node.js application for monitoring Huawei ONU (Optical Network Unit) devices with both CLI and Web-based interfaces, featuring real-time monitoring and configurable notification alerts.
 
 ## Overview
 
-This script automates the process of:
-1. Logging into the ONU web interface at IP address 192.168.111.1
-2. Maintaining session cookies/tokens for authentication
-3. Navigating to the System Info page
-4. Accessing the "Optical Information" section
-5. Extracting and displaying the "RX Optical Power" value
+This application provides two ways to monitor ONU devices:
+
+### 1. Command-Line Interface (CLI)
+- Automatically logs into the ONU web interface
+- Maintains session cookies/tokens for authentication
+- Navigates to the System Info page
+- Accesses the "Optical Information" section
+- Extracts and displays the "RX Optical Power" value
+
+### 2. Web-Based User Interface (WebUI)
+- Modern dashboard with real-time monitoring
+- Multi-device management
+- Configurable notification system with SMS/WhatsApp alerts
+- Threshold-based alerting for RX power, temperature, and device status
+- User authentication and management
 
 ## Prerequisites
 
@@ -27,9 +36,27 @@ This script automates the process of:
 
 ## Usage
 
-Run the script with:
+### WebUI Mode (Recommended)
+
+Start the web server with:
 ```bash
 npm start
+```
+
+or directly with:
+```bash
+node server.js
+```
+
+Then access the WebUI at `http://localhost:3000` with default credentials:
+- Username: `admin`
+- Password: `admin123` (change immediately after first login)
+
+### CLI Mode
+
+Run the CLI monitoring script with:
+```bash
+npm run monitor
 ```
 
 or directly with:
@@ -37,7 +64,35 @@ or directly with:
 node index.js
 ```
 
-## How It Works
+## WebUI Features
+
+### Device Management
+- Add, edit, and remove multiple ONU devices
+- Configure device-specific monitoring intervals
+- Support for different ONU types (Blue UI HG8120C, Red UI EG8120L)
+- Credential encryption for secure storage
+
+### Real-Time Monitoring
+- Continuous background monitoring of all configured devices
+- Configurable monitoring intervals (default: 15 minutes)
+- Retry logic with configurable attempts and delays
+- Live status updates on the dashboard
+
+### Notification System
+- SMS/WhatsApp alert configuration via API templates
+- Support for multiple recipient phone numbers
+- Threshold-based alerts:
+  - Low RX Power notifications with configurable dBm thresholds
+  - High/Low temperature alerts with configurable °C thresholds
+  - Device offline/online status notifications
+- Real-time alert processing without server restart
+
+### User Management
+- Secure login with password hashing
+- Password change functionality
+- Session management
+
+## CLI Mode Features
 
 The script performs the following steps:
 
@@ -53,6 +108,10 @@ The script performs the following steps:
 
 ## Expected Output
 
+### WebUI
+Access `http://localhost:3000` in your browser to see the dashboard with real-time device monitoring, alerts, and configuration options.
+
+### CLI Mode
 ```
 === ONU Power Monitor Script ===
 Logging into ONU device...
@@ -70,6 +129,13 @@ Reference Range: -27 to -8 dBm
 
 ## Configuration
 
+### WebUI Configuration
+1. Access the WebUI at `http://localhost:3000`
+2. Login with default credentials (admin/admin123)
+3. Navigate to device management to add your ONU devices
+4. Configure notification settings via the API Config button
+
+### CLI Configuration
 The script is configured for the default ONU settings. If you need to modify the IP address or credentials, edit the constants at the top of `index.js`:
 
 ```javascript
