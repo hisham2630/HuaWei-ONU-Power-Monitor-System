@@ -1,4 +1,4 @@
-# ONU Power Monitor
+# Huawei ONU Optical Power Monitor
 
 A comprehensive Node.js application for monitoring Huawei ONU (Optical Network Unit) devices with both CLI and Web-based interfaces, featuring real-time monitoring and configurable notification alerts.
 
@@ -12,6 +12,7 @@ This application provides two ways to monitor ONU devices:
 - Navigates to the System Info page
 - Accesses the "Optical Information" section
 - Extracts and displays the "RX Optical Power" value
+- Supports both Blue UI (HG8120C) and Red UI (EG8120L) ONU devices
 
 ### 2. Web-Based User Interface (WebUI)
 - Modern dashboard with real-time monitoring
@@ -64,6 +65,32 @@ or directly with:
 node index.js
 ```
 
+#### CLI Mode Options
+
+The CLI supports two different ONU device types with distinct UI interfaces:
+
+**Blue UI Mode (Default)**
+- Device: HG8120C
+- IP: 192.168.111.1
+- Command: `node index.js` or `node index.js blue`
+- Characteristics:
+  - Uses HTML-embedded CSRF tokens
+  - Hex-encoded data values (e.g., `\x2d23\x2e87`)
+  - Local network access
+
+**Red UI Mode**
+- Device: EG8120L
+- IP: oxygen-iq.net:50099
+- Command: `node index.js red`
+- Characteristics:
+  - Uses AJAX endpoint for CSRF tokens (`/asp/GetRandCount.asp`)
+  - Plain decimal data values (e.g., `-23.28`)
+  - Remote access via domain name
+
+**Help**
+- Command: `node index.js help`, `node index.js --help`, or `node index.js -h`
+- Shows usage instructions
+
 ## WebUI Features
 
 ### Device Management
@@ -106,6 +133,15 @@ The script performs the following steps:
 
 4. **Fallback**: If live data cannot be retrieved (common with embedded devices), it provides the last known values from manual observation
 
+### Blue UI vs Red UI Differences
+
+| Feature | Blue UI (HG8120C) | Red UI (EG8120L) |
+|---------|-------------------|------------------|
+| CSRF Token Retrieval | Extracted from HTML | Retrieved via AJAX endpoint |
+| Data Format | Hex-encoded (`\x2d23\x2e87`) | Plain decimal (`-23.28`) |
+| Access Method | Local IP (192.168.111.1) | Remote domain (oxygen-iq.net:50099) |
+| Authentication Flow | HTML-based token extraction | AJAX-based token retrieval |
+
 ## Expected Output
 
 ### WebUI
@@ -139,10 +175,17 @@ Reference Range: -27 to -8 dBm
 The script is configured for the default ONU settings. If you need to modify the IP address or credentials, edit the constants at the top of `index.js`:
 
 ```javascript
-const ONU_IP = '192.168.111.1';
-const LOGIN_CREDENTIALS = {
-  username: 'telecomadmin',
-  password: 'admintelecom'
+const ONU_CONFIGS = {
+  blue: {
+    host: '192.168.111.1',
+    name: 'HG8120C',
+    color: 'Blue UI'
+  },
+  red: {
+    host: 'oxygen-iq.net:50099',
+    name: 'EG8120L',
+    color: 'Red UI'
+  }
 };
 ```
 

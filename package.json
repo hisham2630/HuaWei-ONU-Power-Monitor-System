@@ -1,5 +1,5 @@
 {
-  "name": "HuaWei-ONU-Power-Monitor-System",
+  "name": "huawei-onu-power-monitor-system",
   "version": "2.0.0",
   "description": "Web-based ONU optical power monitoring system",
   "main": "server.js",
