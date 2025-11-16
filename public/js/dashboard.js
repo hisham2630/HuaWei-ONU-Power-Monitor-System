@@ -1,12 +1,19 @@
-// Dashboard JavaScript
+// Dashboard JavaScript - Grouped PRTG-style Layout
 let devices = [];
+let groups = [];
 let monitoringData = {};
+let deviceStatuses = {};
+let collapsedGroups = new Set();
 
 // Check auth on load
 window.addEventListener('DOMContentLoaded', async () => {
     await checkAuth();
+    await loadGroups();
     await loadDevices();
     await loadSMSConfig();
+    
+    // Setup filter input
+    document.getElementById('filterInput').addEventListener('input', renderDevices);
 });
 
 // Check authentication
@@ -36,6 +43,105 @@ async function logout() {
     }
 }
 
+// Load groups
+async function loadGroups() {
+    try {
+        const response = await fetch('/api/groups');
+        if (response.ok) {
+            groups = await response.json();
+        } else {
+            groups = [];
+        }
+        updateGroupsDropdown();
+        updateGroupsList();
+    } catch (error) {
+        console.error('Failed to load groups:', error);
+        groups = [];
+    }
+}
+
+// Update groups dropdown in device form
+function updateGroupsDropdown() {
+    const select = document.getElementById('deviceGroup');
+    select.innerHTML = '<option value="">No Group</option>';
+    groups.forEach(group => {
+        const option = document.createElement('option');
+        option.value = group.id;
+        option.textContent = group.name;
+        select.appendChild(option);
+    });
+}
+
+// Update groups list in manage groups modal
+function updateGroupsList() {
+    const list = document.getElementById('groupsList');
+    if (groups.length === 0) {
+        list.innerHTML = '<p class="text-muted small mb-0">No groups yet</p>';
+        return;
+    }
+    
+    list.innerHTML = groups.map(group => `
+        <div class="list-group-item d-flex justify-content-between align-items-center">
+            <span>${escapeHtml(group.name)}</span>
+            <button class="btn btn-danger btn-sm" onclick="deleteGroup(${group.id})">
+                <i class="bi bi-trash"></i>
+            </button>
+        </div>
+    `).join('');
+}
+
+// Add new group
+async function addGroup() {
+    const name = document.getElementById('newGroupName').value.trim();
+    if (!name) {
+        showToast('Please enter a group name', 'warning');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/groups', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        
+        if (response.ok) {
+            document.getElementById('newGroupName').value = '';
+            await loadGroups();
+            renderDevices();
+            showToast('Group added successfully', 'success');
+        } else {
+            const error = await response.json();
+            showToast(error.error || 'Failed to add group', 'danger');
+        }
+    } catch (error) {
+        showToast('Network error', 'danger');
+    }
+}
+
+// Delete group
+async function deleteGroup(groupId) {
+    if (!confirm('Are you sure you want to delete this group? Devices in this group will be moved to "No Group".')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/groups/${groupId}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            await loadGroups();
+            await loadDevices();
+            showToast('Group deleted successfully', 'success');
+        } else {
+            showToast('Failed to delete group', 'danger');
+        }
+    } catch (error) {
+        showToast('Network error', 'danger');
+    }
+}
+
 // Load devices
 async function loadDevices() {
     try {
@@ -50,58 +156,296 @@ async function loadDevices() {
     }
 }
 
-// Render devices
+// Render devices grouped by group
 function renderDevices() {
-    const container = document.getElementById('devicesContainer');
+    const container = document.getElementById('groupsContainer');
     const emptyState = document.getElementById('emptyState');
+    const filter = document.getElementById('filterInput').value.toLowerCase();
     
-    if (devices.length === 0) {
+    // Filter devices
+    const filteredDevices = devices.filter(device => 
+        device.name.toLowerCase().includes(filter) || 
+        device.host.toLowerCase().includes(filter)
+    );
+    
+    if (filteredDevices.length === 0) {
         container.innerHTML = '';
         emptyState.style.display = 'block';
+        updateStats();
         return;
     }
     
     emptyState.style.display = 'none';
     
-    container.innerHTML = devices.map(device => `
-        <div class="col-md-6 col-lg-4 col-xl-3 mb-3 fade-in">
-            <div class="card device-card shadow-sm">
-                <div class="device-header">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0">
-                            <i class="bi bi-router me-1"></i>${escapeHtml(device.name)}
-                        </h5>
-                        <span class="status-badge status-checking" id="status-${device.id}">
-                            <i class="bi bi-hourglass-split"></i> Checking
-                        </span>
+    // Group devices
+    const grouped = {};
+    const ungrouped = [];
+    
+    filteredDevices.forEach(device => {
+        if (device.groupId) {
+            if (!grouped[device.groupId]) {
+                grouped[device.groupId] = [];
+            }
+            grouped[device.groupId].push(device);
+        } else {
+            ungrouped.push(device);
+        }
+    });
+    
+    // Render groups
+    let html = '';
+    
+    // Render ungrouped devices first if any
+    if (ungrouped.length > 0) {
+        html += renderGroup(null, 'Ungrouped Devices', ungrouped);
+    }
+    
+    // Render grouped devices
+    groups.forEach(group => {
+        if (grouped[group.id] && grouped[group.id].length > 0) {
+            html += renderGroup(group.id, group.name, grouped[group.id]);
+        }
+    });
+    
+    container.innerHTML = html;
+    updateStats();
+}
+
+// Render a single group
+function renderGroup(groupId, groupName, devicesInGroup) {
+    const groupKey = groupId !== null ? groupId.toString() : 'ungrouped';
+    const isCollapsed = collapsedGroups.has(groupKey);
+    
+    // Calculate group stats
+    const onlineCount = devicesInGroup.filter(d => deviceStatuses[d.id] === 'online').length;
+    const offlineCount = devicesInGroup.filter(d => deviceStatuses[d.id] === 'offline').length;
+    const warningCount = devicesInGroup.filter(d => deviceStatuses[d.id] === 'error').length;
+    
+    return `
+        <div class="device-group">
+            <div class="group-header" onclick="toggleGroup('${groupKey}')">
+                <i class="bi bi-chevron-down group-toggle ${isCollapsed ? 'collapsed' : ''}"></i>
+                <i class="bi bi-folder group-icon"></i>
+                <span class="group-name">${escapeHtml(groupName)} (${devicesInGroup.length})</span>
+                <div class="group-stats">
+                    <div class="group-stat">
+                        <span class="stat-dot ok"></span>
+                        <span>${onlineCount}</span>
                     </div>
-                    <small class="text-white-50">
-                        <i class="bi bi-globe me-1"></i>${escapeHtml(device.host)}
-                    </small>
-                </div>
-                <div class="card-body device-body">
-                    <div id="data-${device.id}">
-                        <div class="loading-spinner"></div>
+                    <div class="group-stat">
+                        <span class="stat-dot down"></span>
+                        <span>${offlineCount}</span>
                     </div>
-                    <div class="device-actions">
-                        <div class="d-grid gap-1">
-                            <button class="btn btn-sm btn-primary" onclick="refreshDevice(${device.id})">
-                                <i class="bi bi-arrow-clockwise me-1"></i>Refresh
-                            </button>
-                            <div class="btn-group" role="group">
-                                <button class="btn btn-sm btn-outline-secondary" onclick="editDevice(${device.id})">
-                                    <i class="bi bi-pencil"></i> Edit
-                                </button>
-                                <button class="btn btn-sm btn-outline-danger" onclick="deleteDevice(${device.id})">
-                                    <i class="bi bi-trash"></i> Delete
-                                </button>
-                            </div>
-                        </div>
+                    <div class="group-stat">
+                        <span class="stat-dot warning"></span>
+                        <span>${warningCount}</span>
                     </div>
                 </div>
             </div>
+            <div class="group-body ${isCollapsed ? 'collapsed' : ''}" id="group-body-${groupKey}">
+                ${devicesInGroup.map(device => renderDeviceCard(device)).join('')}
+            </div>
         </div>
-    `).join('');
+    `;
+}
+
+// Toggle group collapse
+function toggleGroup(groupKey) {
+    if (collapsedGroups.has(groupKey)) {
+        collapsedGroups.delete(groupKey);
+    } else {
+        collapsedGroups.add(groupKey);
+    }
+    renderDevices();
+}
+
+// Render a single device card
+function renderDeviceCard(device) {
+    const status = deviceStatuses[device.id] || 'checking';
+    const data = monitoringData[device.id];
+    
+    // Determine card background class based on status
+    let cardClass = 'device-card';
+    if (status === 'online') {
+        cardClass += ' device-card-online';
+    } else if (status === 'offline') {
+        cardClass += ' device-card-offline';
+    } else if (status === 'error') {
+        cardClass += ' device-card-warning';
+    } else {
+        cardClass += ' device-card-checking';
+    }
+    
+    const iconClass = status === 'online' ? 'status-ok bi-check-circle-fill' : 
+                     status === 'offline' ? 'status-error bi-x-circle-fill' : 
+                     status === 'error' ? 'status-warning bi-exclamation-triangle-fill' : 
+                     'bi-hourglass-split status-checking';
+    
+    return `
+        <div class="${cardClass}" id="card-${device.id}">
+            <div class="device-card-header">
+                <i class="device-status-icon ${iconClass}"></i>
+                <span class="device-card-name" title="${escapeHtml(device.name)}">${escapeHtml(device.name)}</span>
+                <div class="device-card-actions">
+                    <button class="btn btn-primary btn-mini" onclick="refreshDevice(${device.id}, true)" title="Refresh">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                    <button class="btn btn-warning btn-mini" onclick="editDevice(${device.id})" title="Edit">
+                        <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="btn btn-danger btn-mini" onclick="deleteDevice(${device.id})" title="Delete">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="device-card-body" id="badges-${device.id}">
+                ${renderSensorBadges(device, status, data)}
+            </div>
+            <div class="device-card-footer">
+                ${escapeHtml(device.host)}
+            </div>
+        </div>
+    `;
+}
+
+// Render PRTG-style sensor badges
+function renderSensorBadges(device, status, data) {
+    let badges = '';
+    
+    if (status === 'checking') {
+        badges = '<span class="sensor-badge badge-blue"><i class="spinner-mini"></i> Checking</span>';
+    } else if (status === 'offline') {
+        badges = '<span class="sensor-badge badge-gray"><i class="bi bi-x-circle"></i> Offline</span>';
+    } else if (status === 'error') {
+        badges = '<span class="sensor-badge badge-red"><i class="bi bi-exclamation-triangle"></i> Error</span>';
+    } else if (status === 'online' && data) {
+        // Temperature badge - only show if enabled in device preferences
+        if (data.temperature && device.showTemperature) {
+            const tempClass = getTemperatureBadgeClass(data.temperature);
+            const tempValue = extractValue(data.temperature);
+            badges += `<span class="sensor-badge ${tempClass}"><i class="bi bi-thermometer-half"></i> ${tempValue}°C</span>`;
+        }
+        
+        // RX Power badge - always shown as it's the primary metric
+        if (data.currentValue) {
+            const powerClass = getPowerBadgeClass(data.currentValue);
+            const powerValue = extractValue(data.currentValue);
+            badges += `<span class="sensor-badge ${powerClass}"><i class="bi bi-reception-4"></i> RX ${powerValue}</span>`;
+        }
+        
+        // TX Power badge - only show if enabled in device preferences
+        if (data.txPower && device.showTXPower) {
+            const txValue = extractValue(data.txPower);
+            badges += `<span class="sensor-badge badge-yellow"><i class="bi bi-broadcast"></i> TX ${txValue}</span>`;
+        }
+        
+        // UI Type badge - only show if enabled in device preferences
+        if (data.uiType && device.showUIType) {
+            badges += `<span class="sensor-badge badge-gray">${data.uiType === 'blue' ? 'Blue' : 'Red'}</span>`;
+        }
+    } else {
+        badges = '<span class="sensor-badge badge-gray"><i class="bi bi-question-circle"></i> Unknown</span>';
+    }
+    
+    return badges;
+}
+
+// Extract numeric value from string
+function extractValue(str) {
+    if (!str) return '';
+    const match = str.match(/(-?[\d.]+)/);
+    return match ? match[1] : str;
+}
+
+// Get temperature badge class
+function getTemperatureBadgeClass(tempStr) {
+    const match = tempStr.match(/([\d.]+)/);
+    if (!match) return 'badge-yellow';
+    
+    const temp = parseFloat(match[1]);
+    if (temp > 85) return 'badge-red';
+    if (temp > 70) return 'badge-yellow';
+    if (temp < -10) return 'badge-red';
+    if (temp < 0) return 'badge-yellow';
+    return 'badge-green';
+}
+
+// Get power badge class
+function getPowerBadgeClass(powerStr) {
+    const match = powerStr.match(/-?([\d.]+)/);
+    if (!match) return 'badge-yellow';
+    
+    const power = parseFloat(match[1]);
+    if (powerStr.startsWith('-')) {
+        if (power > 27) return 'badge-red';
+        if (power > 25) return 'badge-yellow';
+        if (power >= 8) return 'badge-green';
+        return 'badge-yellow';
+    }
+    return 'badge-yellow';
+}
+
+// Update a single device card
+function updateDeviceCard(deviceId, status, data) {
+    deviceStatuses[deviceId] = status;
+    if (data) {
+        monitoringData[deviceId] = data;
+    }
+    
+    const card = document.getElementById(`card-${deviceId}`);
+    if (card) {
+        // Update card background class based on status
+        card.className = 'device-card';
+        if (status === 'online') {
+            card.className += ' device-card-online';
+        } else if (status === 'offline') {
+            card.className += ' device-card-offline';
+        } else if (status === 'error') {
+            card.className += ' device-card-warning';
+        } else {
+            card.className += ' device-card-checking';
+        }
+        
+        // Update icon
+        const icon = card.querySelector('.device-status-icon');
+        if (icon) {
+            icon.className = 'device-status-icon ';
+            if (status === 'online') {
+                icon.className += 'status-ok bi-check-circle-fill';
+            } else if (status === 'offline') {
+                icon.className += 'status-error bi-x-circle-fill';
+            } else if (status === 'error') {
+                icon.className += 'status-warning bi-exclamation-triangle-fill';
+            } else {
+                icon.className += 'bi-hourglass-split status-checking';
+            }
+        }
+        
+        // Update badges
+        const badgesContainer = document.getElementById(`badges-${deviceId}`);
+        if (badgesContainer) {
+            // Find the device object to pass to renderSensorBadges
+            const device = devices.find(d => d.id === deviceId);
+            if (device) {
+                badgesContainer.innerHTML = renderSensorBadges(device, status, data);
+            }
+        }
+    }
+    
+    // Re-render to update group stats
+    renderDevices();
+}
+
+// Update statistics
+function updateStats() {
+    const online = Object.values(deviceStatuses).filter(s => s === 'online').length;
+    const offline = Object.values(deviceStatuses).filter(s => s === 'offline').length;
+    const warning = Object.values(deviceStatuses).filter(s => s === 'error').length;
+    
+    document.getElementById('onlineCount').textContent = online;
+    document.getElementById('offlineCount').textContent = offline;
+    document.getElementById('warningCount').textContent = warning;
+    document.getElementById('totalCount').textContent = devices.length;
 }
 
 // Refresh all devices status
@@ -113,12 +457,7 @@ async function refreshAllStatus() {
 
 // Refresh single device
 async function refreshDevice(deviceId, showMessage = true) {
-    const dataContainer = document.getElementById(`data-${deviceId}`);
-    const statusBadge = document.getElementById(`status-${deviceId}`);
-    
-    dataContainer.innerHTML = '<div class="loading-spinner"></div>';
-    statusBadge.className = 'status-badge status-checking';
-    statusBadge.innerHTML = '<i class="bi bi-hourglass-split"></i> Checking';
+    updateDeviceCard(deviceId, 'checking', null);
     
     try {
         // Check connectivity first
@@ -128,14 +467,10 @@ async function refreshDevice(deviceId, showMessage = true) {
         const checkData = await checkResponse.json();
         
         if (!checkData.online) {
-            statusBadge.className = 'status-badge status-offline';
-            statusBadge.innerHTML = '<i class="bi bi-x-circle"></i> Offline';
-            dataContainer.innerHTML = `
-                <div class="text-center text-muted py-2">
-                    <i class="bi bi-exclamation-triangle" style="font-size: 1.5rem;"></i>
-                    <p class="mt-1 mb-0 small">Device is offline</p>
-                </div>
-            `;
+            updateDeviceCard(deviceId, 'offline', null);
+            if (showMessage) {
+                showToast('Device is offline', 'warning');
+            }
             return;
         }
         
@@ -146,83 +481,22 @@ async function refreshDevice(deviceId, showMessage = true) {
         const result = await response.json();
         
         if (result.success) {
-            statusBadge.className = 'status-badge status-online';
-            statusBadge.innerHTML = '<i class="bi bi-check-circle"></i> Online';
-            
-            monitoringData[deviceId] = result.data;
-            
-            dataContainer.innerHTML = `
-                <div class="metric-section">
-                    <div class="metric-label">RX Optical Power</div>
-                    <div class="metric-value ${getPowerClass(result.data.currentValue)}">${escapeHtml(result.data.currentValue)}</div>
-                    <div class="metric-reference">Range: ${escapeHtml(result.data.referenceValue)}</div>
-                </div>
-                <div class="metric-section">
-                    <div class="metric-label">Working Temperature</div>
-                    <div class="metric-value ${getTemperatureClass(result.data.temperature)}">${escapeHtml(result.data.temperature)}</div>
-                    <div class="metric-reference">Range: ${escapeHtml(result.data.temperatureRange)}</div>
-                </div>
-                <div class="metric-section">
-                    <div class="metric-label">TX Optical Power</div>
-                    <div class="metric-value">${escapeHtml(result.data.txPower)}</div>
-                </div>
-                <div class="text-muted" style="font-size: 0.7rem; margin-top: 6px;">
-                    <i class="bi bi-info-circle me-1"></i>${result.data.uiType === 'blue' ? 'Blue UI' : 'Red UI'}
-                </div>
-            `;
-            
+            updateDeviceCard(deviceId, 'online', result.data);
             if (showMessage) {
                 showToast('Device refreshed successfully', 'success');
             }
         } else {
-            statusBadge.className = 'status-badge status-offline';
-            statusBadge.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Error';
-            
-            dataContainer.innerHTML = `
-                <div class="text-center text-danger py-2">
-                    <i class="bi bi-exclamation-triangle" style="font-size: 1.5rem;"></i>
-                    <p class="mt-1 mb-0 small">${escapeHtml(result.error)}</p>
-                </div>
-            `;
+            updateDeviceCard(deviceId, 'error', null);
+            if (showMessage) {
+                showToast(result.error || 'Failed to get device data', 'danger');
+            }
         }
     } catch (error) {
-        statusBadge.className = 'status-badge status-offline';
-        statusBadge.innerHTML = '<i class="bi bi-x-circle"></i> Error';
-        
-        dataContainer.innerHTML = `
-            <div class="text-center text-danger py-2">
-                <i class="bi bi-exclamation-triangle" style="font-size: 1.5rem;"></i>
-                <p class="mt-1 mb-0 small">Failed to connect</p>
-            </div>
-        `;
+        updateDeviceCard(deviceId, 'error', null);
+        if (showMessage) {
+            showToast('Failed to connect to device', 'danger');
+        }
     }
-}
-
-// Get power class for color coding
-function getPowerClass(powerStr) {
-    const match = powerStr.match(/-?([\d.]+)/);
-    if (!match) return '';
-    
-    const power = parseFloat(match[1]);
-    if (powerStr.startsWith('-')) {
-        // RX power
-        if (power >= 8 && power <= 27) return 'good';
-        if (power < 8 || power > 27) return 'warning';
-    }
-    return '';
-}
-
-// Get temperature class for color coding
-function getTemperatureClass(tempStr) {
-    const match = tempStr.match(/([\d.]+)/);
-    if (!match) return '';
-    
-    const temp = parseFloat(match[1]);
-    // Normal range: -10 to +85 °C
-    // Warning if outside -10 to +85, good if within 0 to 70
-    if (temp >= 0 && temp <= 70) return 'good';
-    if (temp < -10 || temp > 85) return 'warning';
-    return '';
 }
 
 // Refresh all
@@ -240,8 +514,6 @@ function editDevice(deviceId) {
         return;
     }
     
-    console.log('Editing device:', device); // Debug log
-    
     document.getElementById('deviceModalTitle').textContent = 'Edit Device';
     document.getElementById('deviceId').value = device.id;
     document.getElementById('deviceName').value = device.name || '';
@@ -250,13 +522,14 @@ function editDevice(deviceId) {
     document.getElementById('devicePassword').value = '';
     document.getElementById('devicePassword').required = false;
     document.getElementById('deviceType').value = device.onuType || 'blue';
+    document.getElementById('deviceGroup').value = device.groupId || '';
     
-    // Monitoring settings with proper defaults
+    // Monitoring settings
     document.getElementById('monitoringInterval').value = device.monitoringInterval !== undefined ? device.monitoringInterval : 900;
     document.getElementById('retryAttempts').value = device.retryAttempts !== undefined ? device.retryAttempts : 3;
     document.getElementById('retryDelay').value = device.retryDelay !== undefined ? device.retryDelay : 3;
     
-    // Notification settings with proper defaults
+    // Notification settings
     document.getElementById('notifyRxPower').checked = device.notifyRxPower === true;
     document.getElementById('rxPowerThreshold').value = device.rxPowerThreshold !== undefined ? device.rxPowerThreshold : -27;
     document.getElementById('notifyTempHigh').checked = device.notifyTempHigh === true;
@@ -264,6 +537,11 @@ function editDevice(deviceId) {
     document.getElementById('notifyTempLow').checked = device.notifyTempLow === true;
     document.getElementById('tempLowThreshold').value = device.tempLowThreshold !== undefined ? device.tempLowThreshold : 0;
     document.getElementById('notifyOffline').checked = device.notifyOffline === true;
+    
+    // Display preferences
+    document.getElementById('showTemperature').checked = device.showTemperature === true;
+    document.getElementById('showUIType').checked = device.showUIType === true;
+    document.getElementById('showTXPower').checked = device.showTXPower === true;
     
     const modal = new bootstrap.Modal(document.getElementById('addDeviceModal'));
     modal.show();
@@ -275,6 +553,7 @@ function resetDeviceForm() {
     document.getElementById('deviceForm').reset();
     document.getElementById('deviceId').value = '';
     document.getElementById('devicePassword').required = true;
+    document.getElementById('deviceGroup').value = '';
     
     // Reset to defaults
     document.getElementById('monitoringInterval').value = 900;
@@ -283,6 +562,11 @@ function resetDeviceForm() {
     document.getElementById('rxPowerThreshold').value = -27;
     document.getElementById('tempHighThreshold').value = 70;
     document.getElementById('tempLowThreshold').value = 0;
+    
+    // Reset display preferences to default (unchecked)
+    document.getElementById('showTemperature').checked = false;
+    document.getElementById('showUIType').checked = false;
+    document.getElementById('showTXPower').checked = false;
 }
 
 // Save device
@@ -293,6 +577,7 @@ async function saveDevice() {
     const username = document.getElementById('deviceUsername').value;
     const password = document.getElementById('devicePassword').value;
     const onuType = document.getElementById('deviceType').value;
+    const groupId = document.getElementById('deviceGroup').value || null;
     
     // Collect configuration
     const config = {
@@ -305,10 +590,14 @@ async function saveDevice() {
         tempHighThreshold: parseFloat(document.getElementById('tempHighThreshold').value),
         notifyTempLow: document.getElementById('notifyTempLow').checked,
         tempLowThreshold: parseFloat(document.getElementById('tempLowThreshold').value),
-        notifyOffline: document.getElementById('notifyOffline').checked
+        notifyOffline: document.getElementById('notifyOffline').checked,
+        // Display preferences
+        showTemperature: document.getElementById('showTemperature').checked,
+        showUIType: document.getElementById('showUIType').checked,
+        showTXPower: document.getElementById('showTXPower').checked
     };
     
-    const data = { name, host, username, onuType, config };
+    const data = { name, host, username, onuType, groupId, config };
     if (password) {
         data.password = password;
     }
@@ -447,8 +736,6 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// SMS API Configuration Functions
-
 // Load SMS config
 async function loadSMSConfig() {
     try {
@@ -504,6 +791,3 @@ async function saveSMSConfig() {
         showToast('Network error', 'danger');
     }
 }
-
-// Reset form when modal closes (only after successful save or cancel)
-// Removed automatic reset on modal hide to prevent interfering with edit functionality

@@ -49,7 +49,9 @@ or directly with:
 node server.js
 ```
 
-Then access the WebUI at `http://localhost:3000` with the default credentials provided during installation.
+Then access the WebUI at `http://localhost:3000` with default credentials:
+- Username: `admin`
+- Password: `admin123` (change immediately after first login)
 
 ### CLI Mode
 
@@ -165,7 +167,7 @@ Reference Range: -27 to -8 dBm
 
 ### WebUI Configuration
 1. Access the WebUI at `http://localhost:3000`
-2. Login with the default credentials provided during installation.
+2. Login with default credentials (admin/admin123)
 3. Navigate to device management to add your ONU devices
 4. Configure notification settings via the API Config button
 

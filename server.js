@@ -131,6 +131,7 @@ app.get('/api/devices', requireAuth, (req, res) => {
       host: d.host,
       username: d.username,
       onuType: d.onuType,
+      groupId: d.groupId,
       monitoringInterval: d.monitoringInterval,
       retryAttempts: d.retryAttempts,
       retryDelay: d.retryDelay,
@@ -141,6 +142,10 @@ app.get('/api/devices', requireAuth, (req, res) => {
       notifyTempLow: d.notifyTempLow,
       tempLowThreshold: d.tempLowThreshold,
       notifyOffline: d.notifyOffline,
+      // Display preferences
+      showTemperature: d.showTemperature,
+      showUIType: d.showUIType,
+      showTXPower: d.showTXPower,
       createdAt: d.createdAt,
       updatedAt: d.updatedAt
     }));
@@ -153,7 +158,7 @@ app.get('/api/devices', requireAuth, (req, res) => {
 // API: Add ONU device
 app.post('/api/devices', requireAuth, (req, res) => {
   try {
-    const { name, host, username, password, onuType, config } = req.body;
+    const { name, host, username, password, onuType, groupId, config } = req.body;
     
     if (!name || !host || !username || !password || !onuType) {
       return res.status(400).json({ error: 'All fields are required' });
@@ -163,7 +168,13 @@ app.post('/api/devices', requireAuth, (req, res) => {
       return res.status(400).json({ error: 'Invalid ONU type' });
     }
     
-    const id = db.addONUDevice(name, host, username, password, onuType, config || {});
+    // Add groupId to config if provided
+    const updatedConfig = config || {};
+    if (groupId !== undefined) {
+      updatedConfig.groupId = groupId;
+    }
+    
+    const id = db.addONUDevice(name, host, username, password, onuType, updatedConfig);
     res.json({ success: true, id: id });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -174,7 +185,7 @@ app.post('/api/devices', requireAuth, (req, res) => {
 app.put('/api/devices/:id', requireAuth, (req, res) => {
   try {
     const { id } = req.params;
-    const { name, host, username, password, onuType, config } = req.body;
+    const { name, host, username, password, onuType, groupId, config } = req.body;
     
     if (!name || !host || !username || !onuType) {
       return res.status(400).json({ error: 'Name, host, username, and ONU type are required' });
@@ -184,7 +195,13 @@ app.put('/api/devices/:id', requireAuth, (req, res) => {
       return res.status(400).json({ error: 'Invalid ONU type' });
     }
     
-    const success = db.updateONUDevice(id, name, host, username, password || null, onuType, config || {});
+    // Add groupId to config if provided
+    const updatedConfig = config || {};
+    if (groupId !== undefined) {
+      updatedConfig.groupId = groupId;
+    }
+    
+    const success = db.updateONUDevice(id, name, host, username, password || null, onuType, updatedConfig);
     
     if (success) {
       res.json({ success: true });
@@ -300,6 +317,114 @@ app.get('/api/sms-config', requireAuth, (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// ==================== GROUP MANAGEMENT API ====================
+
+// API: Get all groups
+app.get('/api/groups', requireAuth, (req, res) => {
+  try {
+    const groups = db.getAllGroups();
+    res.json(groups);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Create a new group
+app.post('/api/groups', requireAuth, (req, res) => {
+  try {
+    const { name } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ error: 'Group name is required' });
+    }
+    
+    const group = db.createGroup(name);
+    res.json(group);
+  } catch (error) {
+    if (error.message === 'Group name already exists') {
+      res.status(400).json({ error: error.message });
+    } else {
+      res.status(500).json({ error: error.message });
+    }
+  }
+});
+
+// API: Update a group
+app.put('/api/groups/:id', requireAuth, (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ error: 'Group name is required' });
+    }
+    
+    const success = db.updateGroup(id, name);
+    
+    if (success) {
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: 'Group not found' });
+    }
+  } catch (error) {
+    if (error.message === 'Group name already exists') {
+      res.status(400).json({ error: error.message });
+    } else {
+      res.status(500).json({ error: error.message });
+    }
+  }
+});
+
+// API: Delete a group
+app.delete('/api/groups/:id', requireAuth, (req, res) => {
+  try {
+    const { id } = req.params;
+    const success = db.deleteGroup(id);
+    
+    if (success) {
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: 'Group not found' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Assign device to group
+app.post('/api/devices/:deviceId/group/:groupId', requireAuth, (req, res) => {
+  try {
+    const { deviceId, groupId } = req.params;
+    
+    // Check if device exists
+    const device = db.getONUDevice(deviceId);
+    if (!device) {
+      return res.status(404).json({ error: 'Device not found' });
+    }
+    
+    // Check if group exists (null is allowed to remove from group)
+    if (groupId !== 'null' && groupId !== 'undefined') {
+      const group = db.getGroup(groupId);
+      if (!group) {
+        return res.status(404).json({ error: 'Group not found' });
+      }
+    }
+    
+    const groupIdValue = groupId === 'null' || groupId === 'undefined' ? null : parseInt(groupId);
+    const success = db.assignDeviceToGroup(deviceId, groupIdValue);
+    
+    if (success) {
+      res.json({ success: true });
+    } else {
+      res.status(500).json({ error: 'Failed to assign device to group' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== END GROUP MANAGEMENT API ====================
 
 // API: Save SMS configuration
 app.post('/api/sms-config', requireAuth, (req, res) => {
