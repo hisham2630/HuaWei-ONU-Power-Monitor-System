@@ -216,17 +216,31 @@ function renderGroup(groupId, groupName, devicesInGroup) {
     const groupKey = groupId !== null ? groupId.toString() : 'ungrouped';
     const isCollapsed = collapsedGroups.has(groupKey);
     
+    // Sort devices numerically by name
+    const sortedDevices = [...devicesInGroup].sort((a, b) => {
+        // Extract numbers from device names for proper numerical sorting
+        const numA = a.name.match(/ONU-(\d+)/);
+        const numB = b.name.match(/ONU-(\d+)/);
+        
+        if (numA && numB) {
+            return parseInt(numA[1]) - parseInt(numB[1]);
+        }
+        
+        // Fallback to alphabetical sorting if pattern doesn't match
+        return a.name.localeCompare(b.name);
+    });
+    
     // Calculate group stats
-    const onlineCount = devicesInGroup.filter(d => deviceStatuses[d.id] === 'online').length;
-    const offlineCount = devicesInGroup.filter(d => deviceStatuses[d.id] === 'offline').length;
-    const warningCount = devicesInGroup.filter(d => deviceStatuses[d.id] === 'error').length;
+    const onlineCount = sortedDevices.filter(d => deviceStatuses[d.id] === 'online').length;
+    const offlineCount = sortedDevices.filter(d => deviceStatuses[d.id] === 'offline').length;
+    const warningCount = sortedDevices.filter(d => deviceStatuses[d.id] === 'error').length;
     
     return `
         <div class="device-group">
             <div class="group-header" onclick="toggleGroup('${groupKey}')">
                 <i class="bi bi-chevron-down group-toggle ${isCollapsed ? 'collapsed' : ''}"></i>
                 <i class="bi bi-folder group-icon"></i>
-                <span class="group-name">${escapeHtml(groupName)} (${devicesInGroup.length})</span>
+                <span class="group-name">${escapeHtml(groupName)} (${sortedDevices.length})</span>
                 <div class="group-stats">
                     <div class="group-stat">
                         <span class="stat-dot ok"></span>
@@ -243,7 +257,7 @@ function renderGroup(groupId, groupName, devicesInGroup) {
                 </div>
             </div>
             <div class="group-body ${isCollapsed ? 'collapsed' : ''}" id="group-body-${groupKey}">
-                ${devicesInGroup.map(device => renderDeviceCard(device)).join('')}
+                ${sortedDevices.map(device => renderDeviceCard(device)).join('')}
             </div>
         </div>
     `;
