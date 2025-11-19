@@ -5,7 +5,7 @@ const path = require('path');
 require('dotenv').config();
 
 const DatabaseManager = require('./lib/database');
-const { monitorONU, checkConnectivity } = require('./lib/onuMonitor');
+const { monitorONU, checkConnectivity, getEthernetPortSpeeds } = require('./lib/onuMonitor');
 const NotificationService = require('./lib/notificationService');
 const MonitoringScheduler = require('./lib/monitoringScheduler');
 
@@ -146,6 +146,8 @@ app.get('/api/devices', requireAuth, (req, res) => {
       showTemperature: d.showTemperature,
       showUIType: d.showUIType,
       showTXPower: d.showTXPower,
+      showPortSpeeds: d.showPortSpeeds,
+      portSelections: d.portSelections,
       createdAt: d.createdAt,
       updatedAt: d.updatedAt
     }));
@@ -239,13 +241,42 @@ app.post('/api/devices/:id/monitor', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Device not found' });
     }
     
+    // Check if port speeds should be included based on device configuration
+    const includePortSpeeds = device.showPortSpeeds === true;
+    
     const result = await monitorONU({
       host: device.host,
       username: device.username,
       password: device.password
-    });
+    }, includePortSpeeds);
     
     res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Get Ethernet port speeds for ONU device
+app.post('/api/devices/:id/port-speeds', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const device = db.getONUDevice(id);
+    
+    if (!device) {
+      return res.status(404).json({ error: 'Device not found' });
+    }
+    
+    // Login to the device
+    const loginResult = await require('./lib/onuMonitor').login(device.host, device.username, device.password);
+    
+    if (!loginResult.success) {
+      return res.status(401).json({ error: 'Failed to login to device' });
+    }
+    
+    // Get Ethernet port speeds
+    const portSpeeds = await getEthernetPortSpeeds(loginResult.apiClient, loginResult.cookies, device.host);
+    
+    res.json({ success: true, portSpeeds });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -458,11 +489,11 @@ app.use((err, req, res, next) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`\n╔═══════════════════════════════════════════════╗`);
-  console.log(`║   ONU Power Monitor WebUI Server Started     ║`);
+  console.log(`║   ONU Power Monitor WebUI Server Started      ║`);
   console.log(`╠═══════════════════════════════════════════════╣`);
-  console.log(`║  Server running at: http://localhost:${PORT}    ║`);
-  console.log(`║  Default credentials: admin / admin123       ║`);
-  console.log(`║  CHANGE DEFAULT PASSWORD IMMEDIATELY!        ║`);
+  console.log(`║  Server running at: http://localhost:${PORT}     ║`);
+  console.log(`║  Default credentials: admin / admin123        ║`);
+  console.log(`║  CHANGE DEFAULT PASSWORD IMMEDIATELY!         ║`);
   console.log(`╠═══════════════════════════════════════════════╣`);
   console.log(`║  Background monitoring: ENABLED               ║`);
   console.log(`╚═══════════════════════════════════════════════╝\n`);

@@ -14,6 +14,11 @@ window.addEventListener('DOMContentLoaded', async () => {
     
     // Setup filter input
     document.getElementById('filterInput').addEventListener('input', renderDevices);
+    
+    // Setup port speeds configuration toggle
+    document.getElementById('showPortSpeeds').addEventListener('change', function() {
+        document.getElementById('portSpeedsConfig').style.display = this.checked ? 'block' : 'none';
+    });
 });
 
 // Check authentication
@@ -324,44 +329,61 @@ function renderDeviceCard(device) {
 
 // Render PRTG-style sensor badges
 function renderSensorBadges(device, status, data) {
-    let badges = '';
-    
-    if (status === 'checking') {
-        badges = '<span class="sensor-badge badge-blue"><i class="spinner-mini"></i> Checking</span>';
-    } else if (status === 'offline') {
-        badges = '<span class="sensor-badge badge-gray"><i class="bi bi-x-circle"></i> Offline</span>';
-    } else if (status === 'error') {
-        badges = '<span class="sensor-badge badge-red"><i class="bi bi-exclamation-triangle"></i> Error</span>';
-    } else if (status === 'online' && data) {
-        // Temperature badge - only show if enabled in device preferences
-        if (data.temperature && device.showTemperature) {
-            const tempClass = getTemperatureBadgeClass(data.temperature);
-            const tempValue = extractValue(data.temperature);
-            badges += `<span class="sensor-badge ${tempClass}"><i class="bi bi-thermometer-half"></i> ${tempValue}°C</span>`;
-        }
-        
-        // RX Power badge - always shown as it's the primary metric
-        if (data.currentValue) {
-            const powerClass = getPowerBadgeClass(data.currentValue);
-            const powerValue = extractValue(data.currentValue);
-            badges += `<span class="sensor-badge ${powerClass}"><i class="bi bi-reception-4"></i> RX ${powerValue}</span>`;
-        }
-        
-        // TX Power badge - only show if enabled in device preferences
-        if (data.txPower && device.showTXPower) {
-            const txValue = extractValue(data.txPower);
-            badges += `<span class="sensor-badge badge-yellow"><i class="bi bi-broadcast"></i> TX ${txValue}</span>`;
-        }
-        
-        // UI Type badge - only show if enabled in device preferences
-        if (data.uiType && device.showUIType) {
-            badges += `<span class="sensor-badge badge-gray">${data.uiType === 'blue' ? 'Blue' : 'Red'}</span>`;
-        }
-    } else {
-        badges = '<span class="sensor-badge badge-gray"><i class="bi bi-question-circle"></i> Unknown</span>';
+  let badges = '';
+  
+  if (status === 'checking') {
+    badges = '<span class="sensor-badge badge-blue"><i class="spinner-mini"></i> Checking</span>';
+  } else if (status === 'offline') {
+    badges = '<span class="sensor-badge badge-gray"><i class="bi bi-x-circle"></i> Offline</span>';
+  } else if (status === 'error') {
+    badges = '<span class="sensor-badge badge-red"><i class="bi bi-exclamation-triangle"></i> Error</span>';
+  } else if (status === 'online' && data) {
+    // Temperature badge - only show if enabled in device preferences
+    if (data.temperature && device.showTemperature) {
+      const tempClass = getTemperatureBadgeClass(data.temperature);
+      const tempValue = extractValue(data.temperature);
+      badges += `<span class="sensor-badge ${tempClass}"><i class="bi bi-thermometer-half"></i> ${tempValue}°C</span>`;
     }
     
-    return badges;
+    // RX Power badge - always shown as it's the primary metric
+    if (data.currentValue) {
+      const powerClass = getPowerBadgeClass(data.currentValue);
+      const powerValue = extractValue(data.currentValue);
+      badges += `<span class="sensor-badge ${powerClass}"><i class="bi bi-reception-4"></i> RX ${powerValue}</span>`;
+    }
+    
+    // TX Power badge - only show if enabled in device preferences
+    if (data.txPower && device.showTXPower) {
+      const txValue = extractValue(data.txPower);
+      badges += `<span class="sensor-badge badge-yellow"><i class="bi bi-broadcast"></i> TX ${txValue}</span>`;
+    }
+    
+    // UI Type badge - only show if enabled in device preferences
+    if (data.uiType && device.showUIType) {
+      badges += `<span class="sensor-badge badge-gray">${data.uiType === 'blue' ? 'Blue' : 'Red'}</span>`;
+    }
+    
+    // Port speeds badges - only show if enabled in device preferences
+    if (device.showPortSpeeds && data.portSpeeds && device.portSelections && device.portSelections.length > 0) {
+      device.portSelections.forEach(port => {
+        const speed = data.portSpeeds[`eth${port}-speed`];
+        if (speed !== undefined) {
+          // Format port speed: 1000 -> 1G, 100 -> 100M, 10 -> 10M
+          let formattedSpeed;
+          if (speed === 1000) {
+            formattedSpeed = '1G';
+          } else {
+            formattedSpeed = `${speed}M`;
+          }
+          badges += `<span class="sensor-badge badge-blue"><i class="bi bi-diagram-3"></i> ETH${port}: ${formattedSpeed}</span>`;
+        }
+      });
+    }
+  } else {
+    badges = '<span class="sensor-badge badge-gray"><i class="bi bi-question-circle"></i> Unknown</span>';
+  }
+  
+  return badges;
 }
 
 // Extract numeric value from string
@@ -557,6 +579,17 @@ function editDevice(deviceId) {
     document.getElementById('showUIType').checked = device.showUIType === true;
     document.getElementById('showTXPower').checked = device.showTXPower === true;
     
+    // Port speed preferences
+    const showPortSpeeds = device.showPortSpeeds === true;
+    document.getElementById('showPortSpeeds').checked = showPortSpeeds;
+    document.getElementById('portSpeedsConfig').style.display = showPortSpeeds ? 'block' : 'none';
+    
+    const portSelections = device.portSelections || [];
+    document.getElementById('showPort1').checked = portSelections.includes('1');
+    document.getElementById('showPort2').checked = portSelections.includes('2');
+    document.getElementById('showPort3').checked = portSelections.includes('3');
+    document.getElementById('showPort4').checked = portSelections.includes('4');
+    
     const modal = new bootstrap.Modal(document.getElementById('addDeviceModal'));
     modal.show();
 }
@@ -581,6 +614,12 @@ function resetDeviceForm() {
     document.getElementById('showTemperature').checked = false;
     document.getElementById('showUIType').checked = false;
     document.getElementById('showTXPower').checked = false;
+    document.getElementById('showPortSpeeds').checked = false;
+    document.getElementById('portSpeedsConfig').style.display = 'none';
+    document.getElementById('showPort1').checked = false;
+    document.getElementById('showPort2').checked = false;
+    document.getElementById('showPort3').checked = false;
+    document.getElementById('showPort4').checked = false;
 }
 
 // Save device
@@ -608,7 +647,14 @@ async function saveDevice() {
         // Display preferences
         showTemperature: document.getElementById('showTemperature').checked,
         showUIType: document.getElementById('showUIType').checked,
-        showTXPower: document.getElementById('showTXPower').checked
+        showTXPower: document.getElementById('showTXPower').checked,
+        showPortSpeeds: document.getElementById('showPortSpeeds').checked,
+        portSelections: [
+            document.getElementById('showPort1').checked ? '1' : null,
+            document.getElementById('showPort2').checked ? '2' : null,
+            document.getElementById('showPort3').checked ? '3' : null,
+            document.getElementById('showPort4').checked ? '4' : null
+        ].filter(port => port !== null)
     };
     
     const data = { name, host, username, onuType, groupId, config };

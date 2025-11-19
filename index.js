@@ -20,7 +20,7 @@ const selectedONU = process.argv[2] === 'red' ? 'red' : process.argv[2] === 'blu
 
 if (selectedONU === null) {
   console.log('\n=== ONU Power Monitor - Usage ===');
-  console.log('\nMonitor RX Optical Power from Huawei ONU devices\n');
+  console.log('\nMonitor RX Optical Power and Ethernet Port Speeds from Huawei ONU devices\n');
   console.log('Usage:');
   console.log('  node index.js [onu-type]\n');
   console.log('ONU Types:');
@@ -386,6 +386,102 @@ async function getRxOpticalPower() {
 }
 
 /**
+ * Extract Ethernet port speeds
+ */
+async function getEthernetPortSpeeds() {
+  try {
+    console.log('\nFetching Ethernet Port Speed information...');
+    
+    const headers = {
+      'Cookie': formatCookies(sessionCookies),
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'Referer': `http://${ONU_IP}/index.asp`
+    };
+    
+    // Access the Ethernet port information page
+    console.log('Requesting Ethernet port information page...');
+    const response = await apiClient.get('/html/amp/ethinfo/ethinfo.asp', { 
+      headers: headers
+    });
+    
+    console.log(`Ethernet port info page status: ${response.status}`);
+    
+    if (response.status !== 200) {
+      console.error('Failed to access Ethernet port information page');
+      return null;
+    }
+    
+    const html = response.data;
+    
+    // Check if we got redirected to login ("Waiting..." page)
+    if (html.includes('Waiting...') || html.length < 100) {
+      console.error('Session expired or not authenticated properly');
+      console.error('Response preview:', html.substring(0, 200));
+      return null;
+    }
+    
+    // Parse the HTML to extract port speeds from JavaScript arrays
+    // Looking for patterns like: var geInfos = new Array(new GEInfo("...","1","2","1"),new GEInfo("...","1","1","1"),null);
+    // Where parameter 3 is the speed ("2" = 1000 Mbps, "1" = 100 Mbps)
+    
+    const portSpeeds = {};
+    
+    // Extract the geInfos array
+    const geInfosMatch = html.match(/var\s+geInfos\s*=\s*new\s+Array\s*\(.*?\);/s);
+    if (geInfosMatch && geInfosMatch[0]) {
+      // Extract GEInfo objects from the array
+      const geInfoObjects = geInfosMatch[0].match(/new\s+GEInfo\s*\(\s*"[^"]*"\s*,\s*"[^"]*"\s*,\s*"([^"]*)"\s*,\s*"[^"]*"\s*\)/g);
+      
+      if (geInfoObjects && geInfoObjects.length >= 2) {
+        // Extract speed from first GEInfo object (port 1)
+        const port1SpeedMatch = geInfoObjects[0].match(/new\s+GEInfo\s*\(\s*"[^"]*"\s*,\s*"[^"]*"\s*,\s*"([^"]*)"\s*,\s*"[^"]*"\s*\)/);
+        if (port1SpeedMatch && port1SpeedMatch[1]) {
+          // Convert speed code to Mbps value
+          // "2" = 1000 Mbps, "1" = 100 Mbps
+          const speedCode = port1SpeedMatch[1];
+          portSpeeds['eth1-speed'] = speedCode === '2' ? 1000 : speedCode === '1' ? 100 : 0;
+        }
+        
+        // Extract speed from second GEInfo object (port 2)
+        const port2SpeedMatch = geInfoObjects[1].match(/new\s+GEInfo\s*\(\s*"[^"]*"\s*,\s*"[^"]*"\s*,\s*"([^"]*)"\s*,\s*"[^"]*"\s*\)/);
+        if (port2SpeedMatch && port2SpeedMatch[1]) {
+          // Convert speed code to Mbps value
+          // "2" = 1000 Mbps, "1" = 100 Mbps
+          const speedCode = port2SpeedMatch[1];
+          portSpeeds['eth2-speed'] = speedCode === '2' ? 1000 : speedCode === '1' ? 100 : 0;
+        }
+      }
+    }
+    
+    console.log('\n=== Ethernet Port Speeds ===');
+    if (portSpeeds['eth1-speed']) {
+      console.log(`Port 1 Speed: ${portSpeeds['eth1-speed']} Mbps`);
+    } else {
+      console.log('Port 1 Speed: Not found');
+    }
+    
+    if (portSpeeds['eth2-speed']) {
+      console.log(`Port 2 Speed: ${portSpeeds['eth2-speed']} Mbps`);
+    } else {
+      console.log('Port 2 Speed: Not found');
+    }
+    console.log('=============================\n');
+    
+    return portSpeeds;
+    
+  } catch (error) {
+    console.error('Failed to get Ethernet port speeds:', error.message);
+    
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response preview:', error.response.data?.substring(0, 200));
+    }
+    
+    return null;
+  }
+}
+
+/**
  * Main function to orchestrate the ONU monitoring process
  */
 async function main() {
@@ -409,6 +505,18 @@ async function main() {
   
   if (rxPowerData === null) {
     console.error('\nFailed to retrieve RX Optical Power data.');
+    console.error('Please check:');
+    console.error('  1. Network connectivity to ' + ONU_IP);
+    console.error('  2. Device is powered on and accessible');
+    console.error('  3. Credentials are correct');
+    process.exit(1);
+  }
+  
+  // Get Ethernet port speeds
+  const portSpeeds = await getEthernetPortSpeeds();
+  
+  if (portSpeeds === null) {
+    console.error('\nFailed to retrieve Ethernet port speed data.');
     console.error('Please check:');
     console.error('  1. Network connectivity to ' + ONU_IP);
     console.error('  2. Device is powered on and accessible');
