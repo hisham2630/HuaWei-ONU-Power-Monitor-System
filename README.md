@@ -22,6 +22,7 @@ This application provides two ways to monitor ONU devices:
 - Threshold-based alerting for RX power, temperature, and device status
 - User authentication and management
 - Ethernet port speed monitoring for both ONU types
+- Enhanced device organization with groups
 
 ## Prerequisites
 
@@ -101,6 +102,7 @@ The CLI supports two different ONU device types with distinct UI interfaces:
 - Support for different ONU types (Blue UI HG8120C, Red UI EG8120L)
 - Credential encryption for secure storage
 - Ethernet port speed monitoring configuration
+- Device grouping for better organization
 
 ### Real-Time Monitoring
 - Continuous background monitoring of all configured devices
@@ -108,6 +110,7 @@ The CLI supports two different ONU device types with distinct UI interfaces:
 - Retry logic with configurable attempts and delays
 - Live status updates on the dashboard
 - Ethernet port speed display for both ONU types
+- Enhanced PRTG-like device card view with customizable sensor badges
 
 ### Notification System
 - SMS/WhatsApp alert configuration via API templates
@@ -116,12 +119,29 @@ The CLI supports two different ONU device types with distinct UI interfaces:
   - Low RX Power notifications with configurable dBm thresholds
   - High/Low temperature alerts with configurable °C thresholds
   - Device offline/online status notifications
+  - Ethernet port speed monitoring with configurable thresholds
+  - Port down notifications
 - Real-time alert processing without server restart
+- Group-aware notifications showing "GroupName - DeviceName" for better identification
 
 ### User Management
 - Secure login with password hashing
 - Password change functionality
 - Session management
+
+## Ethernet Port Monitoring
+
+The WebUI now includes comprehensive Ethernet port monitoring capabilities:
+
+### Configuration
+- Per-port speed threshold configuration (10, 100, or 1000 Mbps)
+- Individual port down notification settings
+- Display preferences for selected ports
+
+### Notifications
+- Alerts when port speed drops below configured threshold
+- Notifications when ports go down (speed = 0)
+- Group-aware messaging for easier identification
 
 ## CLI Mode Features
 
