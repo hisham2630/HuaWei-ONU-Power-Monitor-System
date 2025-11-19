@@ -148,6 +148,9 @@ app.get('/api/devices', requireAuth, (req, res) => {
       showTXPower: d.showTXPower,
       showPortSpeeds: d.showPortSpeeds,
       portSelections: d.portSelections,
+      // Ethernet port monitoring preferences
+      portMonitoringConfig: d.portMonitoringConfig,
+      notifyPortDown: d.notifyPortDown,
       createdAt: d.createdAt,
       updatedAt: d.updatedAt
     }));

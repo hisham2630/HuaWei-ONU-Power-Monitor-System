@@ -224,6 +224,109 @@
                             </small>
                         </div>
 
+                        <!-- Ethernet Port Monitoring Settings -->
+                        <h6 class="border-bottom pb-2 mb-3 mt-3">Ethernet Port Monitoring</h6>
+                        
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" id="notifyPortDown">
+                            <label class="form-check-label" for="notifyPortDown">
+                                Port Down Notification
+                            </label>
+                        </div>
+                        <div class="mb-3 ms-4">
+                            <small class="text-muted">
+                                Send notification when an Ethernet port goes down.
+                            </small>
+                        </div>
+                        
+                        <div id="portMonitoringConfig" class="mb-3 ms-4">
+                            <label class="form-label form-label-sm">Port Speed Thresholds</label>
+                            <div class="port-config-item mb-2">
+                                <div class="row g-2 align-items-center">
+                                    <div class="col-md-3">
+                                        <label for="port1Speed" class="form-label form-label-sm mb-0">Port 1</label>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <select class="form-select form-select-sm" id="port1Speed">
+                                            <option value="">No Alert</option>
+                                            <option value="10">10 Mbps</option>
+                                            <option value="100">100 Mbps</option>
+                                            <option value="1000">1000 Mbps</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-5">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="port1NotifyDown">
+                                            <label class="form-check-label form-label-sm" for="port1NotifyDown">Notify if Down</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="port-config-item mb-2">
+                                <div class="row g-2 align-items-center">
+                                    <div class="col-md-3">
+                                        <label for="port2Speed" class="form-label form-label-sm mb-0">Port 2</label>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <select class="form-select form-select-sm" id="port2Speed">
+                                            <option value="">No Alert</option>
+                                            <option value="10">10 Mbps</option>
+                                            <option value="100">100 Mbps</option>
+                                            <option value="1000">1000 Mbps</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-5">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="port2NotifyDown">
+                                            <label class="form-check-label form-label-sm" for="port2NotifyDown">Notify if Down</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="port-config-item mb-2">
+                                <div class="row g-2 align-items-center">
+                                    <div class="col-md-3">
+                                        <label for="port3Speed" class="form-label form-label-sm mb-0">Port 3</label>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <select class="form-select form-select-sm" id="port3Speed">
+                                            <option value="">No Alert</option>
+                                            <option value="10">10 Mbps</option>
+                                            <option value="100">100 Mbps</option>
+                                            <option value="1000">1000 Mbps</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-5">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="port3NotifyDown">
+                                            <label class="form-check-label form-label-sm" for="port3NotifyDown">Notify if Down</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="port-config-item mb-2">
+                                <div class="row g-2 align-items-center">
+                                    <div class="col-md-3">
+                                        <label for="port4Speed" class="form-label form-label-sm mb-0">Port 4</label>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <select class="form-select form-select-sm" id="port4Speed">
+                                            <option value="">No Alert</option>
+                                            <option value="10">10 Mbps</option>
+                                            <option value="100">100 Mbps</option>
+                                            <option value="1000">1000 Mbps</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-5">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="port4NotifyDown">
+                                            <label class="form-check-label form-label-sm" for="port4NotifyDown">Notify if Down</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Display Preferences -->
                         <h6 class="border-bottom pb-2 mb-3 mt-3">Display Preferences</h6>
 

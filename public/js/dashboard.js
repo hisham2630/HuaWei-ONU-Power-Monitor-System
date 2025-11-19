@@ -590,6 +590,20 @@ function editDevice(deviceId) {
     document.getElementById('tempLowThreshold').value = device.tempLowThreshold !== undefined ? device.tempLowThreshold : 0;
     document.getElementById('notifyOffline').checked = device.notifyOffline === true;
     
+    // Ethernet Port Monitoring settings
+    document.getElementById('notifyPortDown').checked = device.notifyPortDown === true;
+    
+    // Port monitoring configuration
+    const portMonitoringConfig = device.portMonitoringConfig || {};
+    document.getElementById('port1Speed').value = portMonitoringConfig['1']?.speed || '';
+    document.getElementById('port1NotifyDown').checked = portMonitoringConfig['1']?.notifyDown || false;
+    document.getElementById('port2Speed').value = portMonitoringConfig['2']?.speed || '';
+    document.getElementById('port2NotifyDown').checked = portMonitoringConfig['2']?.notifyDown || false;
+    document.getElementById('port3Speed').value = portMonitoringConfig['3']?.speed || '';
+    document.getElementById('port3NotifyDown').checked = portMonitoringConfig['3']?.notifyDown || false;
+    document.getElementById('port4Speed').value = portMonitoringConfig['4']?.speed || '';
+    document.getElementById('port4NotifyDown').checked = portMonitoringConfig['4']?.notifyDown || false;
+    
     // Display preferences
     document.getElementById('showTemperature').checked = device.showTemperature === true;
     document.getElementById('showUIType').checked = device.showUIType === true;
@@ -626,6 +640,23 @@ function resetDeviceForm() {
     document.getElementById('tempHighThreshold').value = 70;
     document.getElementById('tempLowThreshold').value = 0;
     
+    // Reset notification settings to default (unchecked)
+    document.getElementById('notifyRxPower').checked = false;
+    document.getElementById('notifyTempHigh').checked = false;
+    document.getElementById('notifyTempLow').checked = false;
+    document.getElementById('notifyOffline').checked = false;
+    document.getElementById('notifyPortDown').checked = false;
+    
+    // Reset port monitoring configuration
+    document.getElementById('port1Speed').value = '';
+    document.getElementById('port1NotifyDown').checked = false;
+    document.getElementById('port2Speed').value = '';
+    document.getElementById('port2NotifyDown').checked = false;
+    document.getElementById('port3Speed').value = '';
+    document.getElementById('port3NotifyDown').checked = false;
+    document.getElementById('port4Speed').value = '';
+    document.getElementById('port4NotifyDown').checked = false;
+    
     // Reset display preferences to default (unchecked)
     document.getElementById('showTemperature').checked = false;
     document.getElementById('showUIType').checked = false;
@@ -648,6 +679,26 @@ async function saveDevice() {
     const onuType = document.getElementById('deviceType').value;
     const groupId = document.getElementById('deviceGroup').value || null;
     
+    // Collect port monitoring configuration
+    const portMonitoringConfig = {
+        '1': {
+            speed: document.getElementById('port1Speed').value,
+            notifyDown: document.getElementById('port1NotifyDown').checked
+        },
+        '2': {
+            speed: document.getElementById('port2Speed').value,
+            notifyDown: document.getElementById('port2NotifyDown').checked
+        },
+        '3': {
+            speed: document.getElementById('port3Speed').value,
+            notifyDown: document.getElementById('port3NotifyDown').checked
+        },
+        '4': {
+            speed: document.getElementById('port4Speed').value,
+            notifyDown: document.getElementById('port4NotifyDown').checked
+        }
+    };
+    
     // Collect configuration
     const config = {
         monitoringInterval: parseInt(document.getElementById('monitoringInterval').value),
@@ -660,6 +711,8 @@ async function saveDevice() {
         notifyTempLow: document.getElementById('notifyTempLow').checked,
         tempLowThreshold: parseFloat(document.getElementById('tempLowThreshold').value),
         notifyOffline: document.getElementById('notifyOffline').checked,
+        notifyPortDown: document.getElementById('notifyPortDown').checked,
+        portMonitoringConfig: portMonitoringConfig,
         // Display preferences
         showTemperature: document.getElementById('showTemperature').checked,
         showUIType: document.getElementById('showUIType').checked,
