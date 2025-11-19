@@ -368,14 +368,30 @@ function renderSensorBadges(device, status, data) {
       device.portSelections.forEach(port => {
         const speed = data.portSpeeds[`eth${port}-speed`];
         if (speed !== undefined) {
-          // Format port speed: 1000 -> 1G, 100 -> 100M, 10 -> 10M
+          let badgeClass = 'badge-blue';
           let formattedSpeed;
-          if (speed === 1000) {
-            formattedSpeed = '1G';
+          
+          // Handle disconnected ports (speed = 0)
+          if (speed === 0) {
+            formattedSpeed = '--';
+            badgeClass = 'port-speed-down'; // Red color for disconnected ports
           } else {
-            formattedSpeed = `${speed}M`;
+            // Format port speed: 1000 -> 1G, 100 -> 100M, 10 -> 10M
+            if (speed === 1000) {
+              formattedSpeed = '1G';
+              badgeClass = 'port-speed-1g'; // Green color for 1Gbps
+            } else if (speed === 100) {
+              formattedSpeed = `${speed}M`;
+              badgeClass = 'port-speed-100m'; // Blue color for 100Mbps
+            } else if (speed === 10) {
+              formattedSpeed = `${speed}M`;
+              badgeClass = 'port-speed-10m'; // Yellow color for 10Mbps
+            } else {
+              formattedSpeed = `${speed}M`;
+            }
           }
-          badges += `<span class="sensor-badge badge-blue"><i class="bi bi-diagram-3"></i> ETH${port}: ${formattedSpeed}</span>`;
+          
+          badges += `<span class="sensor-badge ${badgeClass}"><i class="bi bi-diagram-3"></i> ETH${port}: ${formattedSpeed}</span>`;
         }
       });
     }

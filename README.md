@@ -13,6 +13,7 @@ This application provides two ways to monitor ONU devices:
 - Accesses the "Optical Information" section
 - Extracts and displays the "RX Optical Power" value
 - Supports both Blue UI (HG8120C) and Red UI (EG8120L) ONU devices
+- Extracts Ethernet port speeds for both ONU types
 
 ### 2. Web-Based User Interface (WebUI)
 - Modern dashboard with real-time monitoring
@@ -20,6 +21,7 @@ This application provides two ways to monitor ONU devices:
 - Configurable notification system with SMS/WhatsApp alerts
 - Threshold-based alerting for RX power, temperature, and device status
 - User authentication and management
+- Ethernet port speed monitoring for both ONU types
 
 ## Prerequisites
 
@@ -98,12 +100,14 @@ The CLI supports two different ONU device types with distinct UI interfaces:
 - Configure device-specific monitoring intervals
 - Support for different ONU types (Blue UI HG8120C, Red UI EG8120L)
 - Credential encryption for secure storage
+- Ethernet port speed monitoring configuration
 
 ### Real-Time Monitoring
 - Continuous background monitoring of all configured devices
 - Configurable monitoring intervals (default: 15 minutes)
 - Retry logic with configurable attempts and delays
 - Live status updates on the dashboard
+- Ethernet port speed display for both ONU types
 
 ### Notification System
 - SMS/WhatsApp alert configuration via API templates
@@ -141,6 +145,7 @@ The script performs the following steps:
 | Data Format | Hex-encoded (`\x2d23\x2e87`) | Plain decimal (`-23.28`) |
 | Access Method | Local IP (192.168.111.1) | Remote domain (oxygen-iq.net:50099) |
 | Authentication Flow | HTML-based token extraction | AJAX-based token retrieval |
+| Port Speed Extraction | JavaScript array parsing | HTML table parsing |
 
 ## Expected Output
 
@@ -162,48 +167,3 @@ Reference Range: -27 to -8 dBm
 ===============================================
 === Script Execution Completed ===
 ```
-
-## Configuration
-
-### WebUI Configuration
-1. Access the WebUI at `http://localhost:3000`
-2. Login with default credentials (admin/admin123)
-3. Navigate to device management to add your ONU devices
-4. Configure notification settings via the API Config button
-
-### CLI Configuration
-The script is configured for the default ONU settings. If you need to modify the IP address or credentials, edit the constants at the top of `index.js`:
-
-```javascript
-const ONU_CONFIGS = {
-  blue: {
-    host: '192.168.111.1',
-    name: 'HG8120C',
-    color: 'Blue UI'
-  },
-  red: {
-    host: 'oxygen-iq.net:50099',
-    name: 'EG8120L',
-    color: 'Red UI'
-  }
-};
-```
-
-## Troubleshooting
-
-If you're unable to retrieve live data from your ONU device:
-
-1. Ensure the device is reachable at the specified IP address
-2. Verify the login credentials are correct
-3. Some ONU devices have strict session management that prevents programmatic access
-4. The fallback mechanism will always provide the last known good values
-
-## Limitations
-
-- Some embedded devices have complex session management that prevents programmatic access
-- The script may need endpoint adjustments for different ONU models
-- Network connectivity issues may prevent data retrieval
-
-## License
-
-This project is open source and available under the MIT License.
