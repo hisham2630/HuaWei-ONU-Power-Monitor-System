@@ -1,5 +1,6 @@
 const express = require('express');
 const session = require('express-session');
+const SQLiteStore = require('connect-sqlite3')(session);
 const bodyParser = require('body-parser');
 const path = require('path');
 require('dotenv').config();
@@ -27,13 +28,18 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Session configuration
+// Session configuration with database storage
 app.use(session({
+  store: new SQLiteStore({
+    db: 'sessions.db',
+    dir: './data',
+    table: 'sessions'
+  }),
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   cookie: {
-    maxAge: 3600000, // 1 hour
+    maxAge: 86400000, // 24 hours (1 day) in milliseconds
     httpOnly: true,
     secure: false // Set to true if using HTTPS
   }
@@ -253,6 +259,17 @@ app.post('/api/devices/:id/monitor', requireAuth, async (req, res) => {
       password: device.password
     }, includePortSpeeds);
     
+    // Update monitoring cache with the fresh result
+    let status, data;
+    if (result.success) {
+      status = 'online';
+      data = result.data;
+    } else {
+      status = 'offline';
+      data = null;
+    }
+    db.updateMonitoringCache(id, status, data);
+    
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -297,6 +314,26 @@ app.post('/api/devices/:id/check', requireAuth, async (req, res) => {
     
     const isOnline = await checkConnectivity(device.host);
     res.json({ online: isOnline });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Get cached monitoring data for all devices
+app.get('/api/devices/cached-status', requireAuth, (req, res) => {
+  try {
+    const cache = db.getAllMonitoringCache();
+    const result = {};
+    
+    cache.forEach(item => {
+      result[item.deviceId] = {
+        status: item.status,
+        data: item.data,
+        lastUpdated: item.lastUpdated
+      };
+    });
+    
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

@@ -4,6 +4,7 @@ let groups = [];
 let monitoringData = {};
 let deviceStatuses = {};
 let collapsedGroups = new Set();
+let lastUpdatedTimestamp = null;
 
 // Check auth on load
 window.addEventListener('DOMContentLoaded', async () => {
@@ -154,10 +155,63 @@ async function loadDevices() {
         devices = await response.json();
         renderDevices();
         
-        // Auto-refresh status for all devices
-        await refreshAllStatus();
+        // Load cached status instead of triggering immediate refresh
+        await loadCachedStatus();
     } catch (error) {
         showToast('Failed to load devices', 'danger');
+    }
+}
+
+// Load cached monitoring status from database
+async function loadCachedStatus() {
+    try {
+        const response = await fetch('/api/devices/cached-status');
+        const cachedData = await response.json();
+        
+        let mostRecentUpdate = null;
+        
+        // Update UI with cached data
+        for (const [deviceId, cache] of Object.entries(cachedData)) {
+            const id = parseInt(deviceId);
+            deviceStatuses[id] = cache.status;
+            if (cache.data) {
+                monitoringData[id] = cache.data;
+            }
+            
+            // Track most recent update time
+            if (cache.lastUpdated) {
+                const updateTime = new Date(cache.lastUpdated);
+                if (!mostRecentUpdate || updateTime > mostRecentUpdate) {
+                    mostRecentUpdate = updateTime;
+                }
+            }
+        }
+        
+        // Check if we have a manual refresh timestamp stored in localStorage
+        const storedTimestamp = localStorage.getItem('lastManualRefresh');
+        let manualRefreshTime = storedTimestamp ? new Date(storedTimestamp) : null;
+        
+        // Always use the most recent timestamp (whether from manual refresh or background monitoring)
+        if (manualRefreshTime && mostRecentUpdate) {
+            lastUpdatedTimestamp = manualRefreshTime > mostRecentUpdate ? manualRefreshTime : mostRecentUpdate;
+            // If background monitoring is more recent, clear the manual refresh timestamp
+            if (mostRecentUpdate > manualRefreshTime) {
+                localStorage.removeItem('lastManualRefresh');
+            }
+        } else if (manualRefreshTime) {
+            lastUpdatedTimestamp = manualRefreshTime;
+        } else if (mostRecentUpdate) {
+            lastUpdatedTimestamp = mostRecentUpdate;
+        }
+        
+        if (lastUpdatedTimestamp) {
+            updateLastUpdatedDisplay();
+        }
+        
+        // Re-render to show cached data
+        renderDevices();
+    } catch (error) {
+        console.error('Failed to load cached status:', error);
     }
 }
 
@@ -500,11 +554,95 @@ function updateStats() {
     document.getElementById('totalCount').textContent = devices.length;
 }
 
+// Update "Last Updated" display
+function updateLastUpdatedDisplay() {
+    const element = document.getElementById('lastUpdated');
+    if (!lastUpdatedTimestamp) {
+        element.textContent = '--';
+        return;
+    }
+    
+    const now = new Date();
+    const diff = Math.floor((now - lastUpdatedTimestamp) / 1000); // seconds
+    
+    let displayText;
+    if (diff < 60) {
+        displayText = `${diff}s ago`;
+    } else if (diff < 3600) {
+        const minutes = Math.floor(diff / 60);
+        displayText = `${minutes}m ago`;
+    } else if (diff < 86400) {
+        const hours = Math.floor(diff / 3600);
+        displayText = `${hours}h ago`;
+    } else {
+        const days = Math.floor(diff / 86400);
+        displayText = `${days}d ago`;
+    }
+    
+    element.textContent = `Last: ${displayText}`;
+    element.title = lastUpdatedTimestamp.toLocaleString();
+}
+
+// Update the "Last Updated" display every 10 seconds
+setInterval(() => {
+    updateLastUpdatedDisplay();
+}, 10000);
+
+// Check for new background monitoring updates every 30 seconds
+setInterval(async () => {
+    try {
+        const response = await fetch('/api/devices/cached-status');
+        const cachedData = await response.json();
+        
+        let mostRecentUpdate = null;
+        let hasNewData = false;
+        
+        // Check for most recent update in cached data
+        for (const [deviceId, cache] of Object.entries(cachedData)) {
+            if (cache.lastUpdated) {
+                const updateTime = new Date(cache.lastUpdated);
+                if (!mostRecentUpdate || updateTime > mostRecentUpdate) {
+                    mostRecentUpdate = updateTime;
+                }
+            }
+        }
+        
+        // If we found a more recent background update, refresh the UI
+        if (mostRecentUpdate && (!lastUpdatedTimestamp || mostRecentUpdate > lastUpdatedTimestamp)) {
+            hasNewData = true;
+            lastUpdatedTimestamp = mostRecentUpdate;
+            
+            // Update device statuses and data
+            for (const [deviceId, cache] of Object.entries(cachedData)) {
+                const id = parseInt(deviceId);
+                deviceStatuses[id] = cache.status;
+                if (cache.data) {
+                    monitoringData[id] = cache.data;
+                }
+            }
+            
+            // Clear manual refresh timestamp since background is newer
+            localStorage.removeItem('lastManualRefresh');
+            
+            // Re-render to show updated data
+            renderDevices();
+            updateLastUpdatedDisplay();
+        }
+    } catch (error) {
+        console.error('Failed to check for background updates:', error);
+    }
+}, 30000); // Check every 30 seconds
+
 // Refresh all devices status
 async function refreshAllStatus() {
     for (const device of devices) {
         await refreshDevice(device.id, false);
     }
+    
+    // Update timestamp after all devices are refreshed
+    lastUpdatedTimestamp = new Date();
+    localStorage.setItem('lastManualRefresh', lastUpdatedTimestamp.toISOString());
+    updateLastUpdatedDisplay();
 }
 
 // Refresh single device
@@ -534,7 +672,12 @@ async function refreshDevice(deviceId, showMessage = true) {
         
         if (result.success) {
             updateDeviceCard(deviceId, 'online', result.data);
+            
             if (showMessage) {
+                // Update timestamp for individual device refresh when showing message
+                lastUpdatedTimestamp = new Date();
+                localStorage.setItem('lastManualRefresh', lastUpdatedTimestamp.toISOString());
+                updateLastUpdatedDisplay();
                 showToast('Device refreshed successfully', 'success');
             }
         } else {
@@ -554,7 +697,9 @@ async function refreshDevice(deviceId, showMessage = true) {
 // Refresh all
 async function refreshAll() {
     showToast('Refreshing all devices...', 'info');
+    
     await refreshAllStatus();
+    
     showToast('All devices refreshed', 'success');
 }
 
