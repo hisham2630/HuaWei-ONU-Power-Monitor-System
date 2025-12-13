@@ -347,11 +347,14 @@ app.post('/api/devices/monitor-all', requireAuth, async (req, res) => {
     
     for (const device of devices) {
       try {
+        // Check if port speeds should be included based on device configuration
+        const includePortSpeeds = device.showPortSpeeds === true;
+        
         const result = await monitorONU({
           host: device.host,
           username: device.username,
           password: device.password
-        });
+        }, includePortSpeeds);
         results[device.id] = result;
       } catch (error) {
         results[device.id] = {
