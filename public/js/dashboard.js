@@ -478,6 +478,11 @@ function getTemperatureBadgeClass(tempStr) {
 
 // Get power badge class
 function getPowerBadgeClass(powerStr) {
+    // Check for no signal (-- dBm)
+    if (powerStr.includes('--')) {
+        return 'badge-red';
+    }
+    
     const match = powerStr.match(/-?([\d.]+)/);
     if (!match) return 'badge-yellow';
     
