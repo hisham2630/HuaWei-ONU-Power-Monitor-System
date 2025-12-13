@@ -339,13 +339,13 @@ app.get('/api/devices/cached-status', requireAuth, (req, res) => {
   }
 });
 
-// API: Monitor all devices
+// API: Monitor all devices (parallel batch processing)
 app.post('/api/devices/monitor-all', requireAuth, async (req, res) => {
   try {
     const devices = db.getAllONUDevices();
-    const results = {};
     
-    for (const device of devices) {
+    // Process all devices in parallel
+    const monitoringPromises = devices.map(async (device) => {
       try {
         // Check if port speeds should be included based on device configuration
         const includePortSpeeds = device.showPortSpeeds === true;
@@ -355,14 +355,38 @@ app.post('/api/devices/monitor-all', requireAuth, async (req, res) => {
           username: device.username,
           password: device.password
         }, includePortSpeeds);
-        results[device.id] = result;
+        
+        // Update monitoring cache with the result
+        let status, data;
+        if (result.success) {
+          status = 'online';
+          data = result.data;
+        } else {
+          status = 'offline';
+          data = null;
+        }
+        db.updateMonitoringCache(device.id, status, data);
+        
+        return { deviceId: device.id, result };
       } catch (error) {
-        results[device.id] = {
-          success: false,
-          error: error.message
+        return {
+          deviceId: device.id,
+          result: {
+            success: false,
+            error: error.message
+          }
         };
       }
-    }
+    });
+    
+    // Wait for all devices to complete
+    const completedResults = await Promise.all(monitoringPromises);
+    
+    // Transform results into object keyed by device ID
+    const results = {};
+    completedResults.forEach(({ deviceId, result }) => {
+      results[deviceId] = result;
+    });
     
     res.json(results);
   } catch (error) {

@@ -638,10 +638,46 @@ setInterval(async () => {
     }
 }, 30000); // Check every 30 seconds
 
-// Refresh all devices status
+// Refresh all devices status (batch mode)
 async function refreshAllStatus() {
+    // Set all devices to checking state immediately
     for (const device of devices) {
-        await refreshDevice(device.id, false);
+        updateDeviceCard(device.id, 'checking', null);
+    }
+    
+    try {
+        // Fetch all devices data in a single batch request
+        const response = await fetch('/api/devices/monitor-all', {
+            method: 'POST'
+        });
+        
+        if (!response.ok) {
+            throw new Error('Batch monitoring request failed');
+        }
+        
+        const results = await response.json();
+        
+        // Update all device cards with the results
+        for (const [deviceIdStr, result] of Object.entries(results)) {
+            const deviceId = parseInt(deviceIdStr);
+            
+            if (result.success) {
+                updateDeviceCard(deviceId, 'online', result.data);
+            } else {
+                // Check if it's a connectivity issue or other error
+                if (result.error && result.error.includes('offline')) {
+                    updateDeviceCard(deviceId, 'offline', null);
+                } else {
+                    updateDeviceCard(deviceId, 'error', null);
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Batch refresh failed:', error);
+        // Set all cards to error state if batch request fails
+        for (const device of devices) {
+            updateDeviceCard(device.id, 'error', null);
+        }
     }
     
     // Update timestamp after all devices are refreshed
