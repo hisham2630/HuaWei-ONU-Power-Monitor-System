@@ -277,16 +277,23 @@ function renderGroup(groupId, groupName, devicesInGroup) {
     
     // Sort devices numerically by name
     const sortedDevices = [...devicesInGroup].sort((a, b) => {
-        // Extract numbers from device names for proper numerical sorting
-        const numA = a.name.match(/ONU-(\d+)/);
-        const numB = b.name.match(/ONU-(\d+)/);
+        // Extract leading number from device names for proper numerical sorting
+        // Supports formats like: "1-1406-22", "10-1904-42", "ONU-5", etc.
+        const numA = a.name.match(/^(\d+)/);
+        const numB = b.name.match(/^(\d+)/);
         
         if (numA && numB) {
-            return parseInt(numA[1]) - parseInt(numB[1]);
+            const firstNumA = parseInt(numA[1]);
+            const firstNumB = parseInt(numB[1]);
+            
+            // If leading numbers are different, sort by them
+            if (firstNumA !== firstNumB) {
+                return firstNumA - firstNumB;
+            }
         }
         
-        // Fallback to alphabetical sorting if pattern doesn't match
-        return a.name.localeCompare(b.name);
+        // Fallback to natural string sorting for same leading number or no match
+        return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
     });
     
     // Calculate group stats
