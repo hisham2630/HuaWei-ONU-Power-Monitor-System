@@ -7,6 +7,8 @@ require('dotenv').config();
 
 const DatabaseManager = require('./lib/database');
 const { monitorONU, checkConnectivity, getEthernetPortSpeeds } = require('./lib/onuMonitor');
+const MikroTikMonitor = require('./lib/mikrotikMonitor');
+const MikroTikProvisioning = require('./lib/mikrotikProvisioning');
 const NotificationService = require('./lib/notificationService');
 const MonitoringScheduler = require('./lib/monitoringScheduler');
 
@@ -16,6 +18,10 @@ const SESSION_SECRET = process.env.SESSION_SECRET || 'change-this-secret-key';
 
 // Initialize database
 const db = new DatabaseManager();
+
+// Initialize MikroTik services
+const mikrotikMonitor = new MikroTikMonitor(db);
+const mikrotikProvisioning = new MikroTikProvisioning(db);
 
 // Initialize notification service
 const notificationService = new NotificationService(db);
@@ -415,6 +421,205 @@ app.get('/api/sms-config', requireAuth, (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// ==================== MIKROTIK API ====================
+
+// API: Get MikroTik control router configuration
+app.get('/api/mikrotik/control-config', requireAuth, (req, res) => {
+  try {
+    const config = db.getMikroTikControlConfig();
+    if (config) {
+      // Don't send password to client
+      res.json({
+        controlIp: config.control_ip,
+        controlUsername: config.control_username,
+        wireguardInterface: config.wireguard_interface,
+        lhg60gEthernetInterface: config.lhg60g_ethernet_interface,
+        basePort: config.base_port
+      });
+    } else {
+      res.json(null);
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Save MikroTik control router configuration
+app.post('/api/mikrotik/control-config', requireAuth, (req, res) => {
+  try {
+    const { controlIp, controlUsername, controlPassword, wireguardInterface, lhg60gEthernetInterface, basePort } = req.body;
+    
+    if (!controlIp || !controlUsername || !controlPassword || !wireguardInterface || !lhg60gEthernetInterface) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+    
+    db.saveMikroTikControlConfig(
+      controlIp,
+      controlUsername,
+      controlPassword,
+      wireguardInterface,
+      lhg60gEthernetInterface,
+      basePort || 60001
+    );
+    
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Test MikroTik control router connection
+app.post('/api/mikrotik/control-config/test', requireAuth, async (req, res) => {
+  try {
+    const { controlIp, controlUsername, controlPassword } = req.body;
+    
+    if (!controlIp || !controlUsername || !controlPassword) {
+      return res.status(400).json({ error: 'All credentials required for testing' });
+    }
+    
+    const SSHManager = require('./lib/sshManager');
+    const sshManager = new SSHManager();
+    
+    const result = await sshManager.testConnection({
+      control_ip: controlIp,
+      control_username: controlUsername,
+      control_password: controlPassword
+    });
+    
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Add MikroTik LHG60G device
+app.post('/api/mikrotik/devices', requireAuth, async (req, res) => {
+  try {
+    const { name, lhg60gIP, sshPort, sshUsername, sshPassword, tunnelIP, groupId, config } = req.body;
+    
+    if (!name || !lhg60gIP || !sshPort || !sshUsername || !sshPassword || !tunnelIP) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+    
+    // Add groupId to config if provided
+    const updatedConfig = config || {};
+    if (groupId !== undefined) {
+      updatedConfig.groupId = groupId;
+    }
+    
+    // Add device to database
+    const deviceId = db.addMikroTikDevice(name, lhg60gIP, sshPort, sshUsername, sshPassword, tunnelIP, updatedConfig);
+    
+    // Get the full device config for provisioning
+    const device = db.getDeviceWithCredentials(deviceId);
+    device.name = name; // Ensure name is set
+    
+    // Provision device on control router
+    const provisionResult = await mikrotikProvisioning.provisionDevice(device);
+    
+    res.json({ 
+      success: true, 
+      id: deviceId,
+      provisioning: provisionResult
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Update MikroTik LHG60G device
+app.put('/api/mikrotik/devices/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, lhg60gIP, sshPort, sshUsername, sshPassword, tunnelIP, groupId, config } = req.body;
+    
+    if (!name || !lhg60gIP || !sshPort || !sshUsername || !tunnelIP) {
+      return res.status(400).json({ error: 'Name, IP, port, username, and tunnel IP are required' });
+    }
+    
+    // Add groupId to config if provided
+    const updatedConfig = config || {};
+    if (groupId !== undefined) {
+      updatedConfig.groupId = groupId;
+    }
+    
+    const success = db.updateMikroTikDevice(id, name, lhg60gIP, sshPort, sshUsername, sshPassword || null, tunnelIP, updatedConfig);
+    
+    if (success) {
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: 'Device not found' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Delete MikroTik LHG60G device with cleanup
+app.delete('/api/mikrotik/devices/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Get device before deletion
+    const device = db.getDeviceWithCredentials(id);
+    if (!device) {
+      return res.status(404).json({ error: 'Device not found' });
+    }
+    
+    // Get all remaining MikroTik devices (excluding this one)
+    const allDevices = db.getAllONUDevices();
+    const remainingDevices = allDevices.filter(d => d.id !== parseInt(id));
+    
+    // Delete from database first
+    const deleted = db.deleteONUDevice(id);
+    
+    if (!deleted) {
+      return res.status(404).json({ error: 'Device not found' });
+    }
+    
+    // Attempt cleanup on control router
+    const cleanupResult = await mikrotikProvisioning.deprovisionDevice(device, remainingDevices);
+    
+    res.json({ 
+      success: true,
+      cleanup: cleanupResult
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: Monitor MikroTik device
+app.post('/api/mikrotik/devices/:id/monitor', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const device = db.getDeviceWithCredentials(id);
+    
+    if (!device) {
+      return res.status(404).json({ error: 'Device not found' });
+    }
+    
+    const result = await mikrotikMonitor.monitorMikroTik(device);
+    
+    // Update monitoring cache
+    let status, data;
+    if (result.success) {
+      status = 'online';
+      data = result.data;
+    } else {
+      status = 'offline';
+      data = null;
+    }
+    db.updateMonitoringCache(id, status, data);
+    
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== END MIKROTIK API ====================
 
 // ==================== GROUP MANAGEMENT API ====================
 
