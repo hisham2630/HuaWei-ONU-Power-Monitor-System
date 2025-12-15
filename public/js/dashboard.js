@@ -12,6 +12,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     await loadGroups();
     await loadDevices();
     await loadSMSConfig();
+    await loadMikroTikControlConfig();
     
     // Setup filter input
     document.getElementById('filterInput').addEventListener('input', renderDevices);
@@ -399,62 +400,84 @@ function renderSensorBadges(device, status, data) {
   } else if (status === 'error') {
     badges = '<span class="sensor-badge badge-red"><i class="bi bi-exclamation-triangle"></i> Error</span>';
   } else if (status === 'online' && data) {
-    // Temperature badge - only show if enabled in device preferences
-    if (data.temperature && device.showTemperature) {
-      const tempClass = getTemperatureBadgeClass(data.temperature);
-      const tempValue = extractValue(data.temperature);
-      badges += `<span class="sensor-badge ${tempClass}"><i class="bi bi-thermometer-half"></i> ${tempValue}°C</span>`;
-    }
-    
-    // RX Power badge - always shown as it's the primary metric
-    if (data.currentValue) {
-      const powerClass = getPowerBadgeClass(data.currentValue);
-      const powerValue = extractValue(data.currentValue);
-      badges += `<span class="sensor-badge ${powerClass}"><i class="bi bi-reception-4"></i> RX ${powerValue}</span>`;
-    }
-    
-    // TX Power badge - only show if enabled in device preferences
-    if (data.txPower && device.showTXPower) {
-      const txValue = extractValue(data.txPower);
-      badges += `<span class="sensor-badge badge-yellow"><i class="bi bi-broadcast"></i> TX ${txValue}</span>`;
-    }
-    
-    // UI Type badge - only show if enabled in device preferences
-    if (data.uiType && device.showUIType) {
-      badges += `<span class="sensor-badge badge-gray">${data.uiType === 'blue' ? 'Blue' : 'Red'}</span>`;
-    }
-    
-    // Port speeds badges - only show if enabled in device preferences
-    if (device.showPortSpeeds && data.portSpeeds && device.portSelections && device.portSelections.length > 0) {
-      device.portSelections.forEach(port => {
-        const speed = data.portSpeeds[`eth${port}-speed`];
-        if (speed !== undefined) {
-          let badgeClass = 'badge-blue';
-          let formattedSpeed;
-          
-          // Handle disconnected ports (speed = 0)
-          if (speed === 0) {
-            formattedSpeed = '--';
-            badgeClass = 'port-speed-down'; // Red color for disconnected ports
-          } else {
-            // Format port speed: 1000 -> 1G, 100 -> 100M, 10 -> 10M
-            if (speed === 1000) {
-              formattedSpeed = '1G';
-              badgeClass = 'port-speed-1g'; // Green color for 1Gbps
-            } else if (speed === 100) {
-              formattedSpeed = `${speed}M`;
-              badgeClass = 'port-speed-100m'; // Blue color for 100Mbps
-            } else if (speed === 10) {
-              formattedSpeed = `${speed}M`;
-              badgeClass = 'port-speed-10m'; // Yellow color for 10Mbps
-            } else {
-              formattedSpeed = `${speed}M`;
-            }
-          }
-          
-          badges += `<span class="sensor-badge ${badgeClass}"><i class="bi bi-diagram-3"></i> ETH${port}: ${formattedSpeed}</span>`;
+    // Check if this is a MikroTik device
+    if (device.device_type === 'mikrotik_lhg60g') {
+      // RSSI badge - only show if enabled
+      if (data.rssi !== undefined && device.showRssi) {
+        const rssiClass = getRSSIBadgeClass(data.rssi);
+        badges += `<span class="sensor-badge ${rssiClass}"><i class="bi bi-reception-4"></i> RSSI: ${data.rssi} dBm</span>`;
+      }
+      
+      // Port Speed badge - only show if enabled
+      if (data.portSpeed !== undefined && device.showMikrotikPortSpeed) {
+        const speedClass = getMikrotikPortSpeedBadgeClass(data.portSpeed);
+        let formattedSpeed;
+        if (data.portSpeed >= 1000) {
+          formattedSpeed = `${(data.portSpeed / 1000).toFixed(1)}G`;
+        } else {
+          formattedSpeed = `${data.portSpeed}M`;
         }
-      });
+        badges += `<span class="sensor-badge ${speedClass}"><i class="bi bi-diagram-3"></i> ${formattedSpeed}</span>`;
+      }
+    } else {
+      // ONU device badges
+      // Temperature badge - only show if enabled in device preferences
+      if (data.temperature && device.showTemperature) {
+        const tempClass = getTemperatureBadgeClass(data.temperature);
+        const tempValue = extractValue(data.temperature);
+        badges += `<span class="sensor-badge ${tempClass}"><i class="bi bi-thermometer-half"></i> ${tempValue}°C</span>`;
+      }
+      
+      // RX Power badge - always shown as it's the primary metric
+      if (data.currentValue) {
+        const powerClass = getPowerBadgeClass(data.currentValue);
+        const powerValue = extractValue(data.currentValue);
+        badges += `<span class="sensor-badge ${powerClass}"><i class="bi bi-reception-4"></i> RX ${powerValue}</span>`;
+      }
+      
+      // TX Power badge - only show if enabled in device preferences
+      if (data.txPower && device.showTXPower) {
+        const txValue = extractValue(data.txPower);
+        badges += `<span class="sensor-badge badge-yellow"><i class="bi bi-broadcast"></i> TX ${txValue}</span>`;
+      }
+      
+      // UI Type badge - only show if enabled in device preferences
+      if (data.uiType && device.showUIType) {
+        badges += `<span class="sensor-badge badge-gray">${data.uiType === 'blue' ? 'Blue' : 'Red'}</span>`;
+      }
+      
+      // Port speeds badges - only show if enabled in device preferences
+      if (device.showPortSpeeds && data.portSpeeds && device.portSelections && device.portSelections.length > 0) {
+        device.portSelections.forEach(port => {
+          const speed = data.portSpeeds[`eth${port}-speed`];
+          if (speed !== undefined) {
+            let badgeClass = 'badge-blue';
+            let formattedSpeed;
+            
+            // Handle disconnected ports (speed = 0)
+            if (speed === 0) {
+              formattedSpeed = '--';
+              badgeClass = 'port-speed-down'; // Red color for disconnected ports
+            } else {
+              // Format port speed: 1000 -> 1G, 100 -> 100M, 10 -> 10M
+              if (speed === 1000) {
+                formattedSpeed = '1G';
+                badgeClass = 'port-speed-1g'; // Green color for 1Gbps
+              } else if (speed === 100) {
+                formattedSpeed = `${speed}M`;
+                badgeClass = 'port-speed-100m'; // Blue color for 100Mbps
+              } else if (speed === 10) {
+                formattedSpeed = `${speed}M`;
+                badgeClass = 'port-speed-10m'; // Yellow color for 10Mbps
+              } else {
+                formattedSpeed = `${speed}M`;
+              }
+            }
+            
+            badges += `<span class="sensor-badge ${badgeClass}"><i class="bi bi-diagram-3"></i> ETH${port}: ${formattedSpeed}</span>`;
+          }
+        });
+      }
     }
   } else {
     badges = '<span class="sensor-badge badge-gray"><i class="bi bi-question-circle"></i> Unknown</span>';
@@ -501,6 +524,22 @@ function getPowerBadgeClass(powerStr) {
         return 'badge-yellow';
     }
     return 'badge-yellow';
+}
+
+// Get RSSI badge class for MikroTik devices
+function getRSSIBadgeClass(rssi) {
+    if (rssi >= -60) return 'badge-green';  // Excellent signal
+    if (rssi >= -70) return 'badge-yellow'; // Good signal
+    if (rssi >= -80) return 'badge-red';    // Weak signal
+    return 'badge-red';                      // Very weak signal
+}
+
+// Get port speed badge class for MikroTik devices
+function getMikrotikPortSpeedBadgeClass(speed) {
+    if (speed >= 1000) return 'port-speed-1g';   // Green for 1Gbps+
+    if (speed >= 100) return 'port-speed-100m';  // Blue for 100Mbps
+    if (speed >= 10) return 'port-speed-10m';    // Yellow for 10Mbps
+    return 'port-speed-down';                    // Red for down/unknown
 }
 
 // Update a single device card
@@ -697,41 +736,72 @@ async function refreshAllStatus() {
 async function refreshDevice(deviceId, showMessage = true) {
     updateDeviceCard(deviceId, 'checking', null);
     
+    const device = devices.find(d => d.id === deviceId);
+    if (!device) {
+        if (showMessage) showToast('Device not found', 'danger');
+        return;
+    }
+    
     try {
-        // Check connectivity first
-        const checkResponse = await fetch(`/api/devices/${deviceId}/check`, {
-            method: 'POST'
-        });
-        const checkData = await checkResponse.json();
-        
-        if (!checkData.online) {
-            updateDeviceCard(deviceId, 'offline', null);
-            if (showMessage) {
-                showToast('Device is offline', 'warning');
-            }
-            return;
-        }
-        
-        // Get monitoring data
-        const response = await fetch(`/api/devices/${deviceId}/monitor`, {
-            method: 'POST'
-        });
-        const result = await response.json();
-        
-        if (result.success) {
-            updateDeviceCard(deviceId, 'online', result.data);
+        // Route to appropriate API based on device type
+        if (device.device_type === 'mikrotik_lhg60g') {
+            // MikroTik device monitoring
+            const response = await fetch(`/api/mikrotik/devices/${deviceId}/monitor`, {
+                method: 'POST'
+            });
+            const result = await response.json();
             
-            if (showMessage) {
-                // Update timestamp for individual device refresh when showing message
-                lastUpdatedTimestamp = new Date();
-                localStorage.setItem('lastManualRefresh', lastUpdatedTimestamp.toISOString());
-                updateLastUpdatedDisplay();
-                showToast('Device refreshed successfully', 'success');
+            if (result.success) {
+                updateDeviceCard(deviceId, 'online', result.data);
+                
+                if (showMessage) {
+                    lastUpdatedTimestamp = new Date();
+                    localStorage.setItem('lastManualRefresh', lastUpdatedTimestamp.toISOString());
+                    updateLastUpdatedDisplay();
+                    showToast('MikroTik device refreshed successfully', 'success');
+                }
+            } else {
+                updateDeviceCard(deviceId, result.error && result.error.includes('offline') ? 'offline' : 'error', null);
+                if (showMessage) {
+                    showToast(result.error || 'Failed to get device data', 'danger');
+                }
             }
         } else {
-            updateDeviceCard(deviceId, 'error', null);
-            if (showMessage) {
-                showToast(result.error || 'Failed to get device data', 'danger');
+            // ONU device monitoring
+            // Check connectivity first
+            const checkResponse = await fetch(`/api/devices/${deviceId}/check`, {
+                method: 'POST'
+            });
+            const checkData = await checkResponse.json();
+            
+            if (!checkData.online) {
+                updateDeviceCard(deviceId, 'offline', null);
+                if (showMessage) {
+                    showToast('Device is offline', 'warning');
+                }
+                return;
+            }
+            
+            // Get monitoring data
+            const response = await fetch(`/api/devices/${deviceId}/monitor`, {
+                method: 'POST'
+            });
+            const result = await response.json();
+            
+            if (result.success) {
+                updateDeviceCard(deviceId, 'online', result.data);
+                
+                if (showMessage) {
+                    lastUpdatedTimestamp = new Date();
+                    localStorage.setItem('lastManualRefresh', lastUpdatedTimestamp.toISOString());
+                    updateLastUpdatedDisplay();
+                    showToast('Device refreshed successfully', 'success');
+                }
+            } else {
+                updateDeviceCard(deviceId, 'error', null);
+                if (showMessage) {
+                    showToast(result.error || 'Failed to get device data', 'danger');
+                }
             }
         }
     } catch (error) {
@@ -762,56 +832,87 @@ function editDevice(deviceId) {
     document.getElementById('deviceModalTitle').textContent = 'Edit Device';
     document.getElementById('deviceId').value = device.id;
     document.getElementById('deviceName').value = device.name || '';
-    document.getElementById('deviceHost').value = device.host || '';
-    document.getElementById('deviceUsername').value = device.username || '';
-    document.getElementById('devicePassword').value = '';
-    document.getElementById('devicePassword').required = false;
-    document.getElementById('deviceType').value = device.onuType || 'blue';
+    
+    // Determine device type
+    const deviceType = device.device_type || device.onuType || 'blue';
+    document.getElementById('deviceType').value = deviceType;
+    
+    // Toggle fields based on device type
+    toggleDeviceTypeFields();
+    
+    if (deviceType === 'mikrotik_lhg60g') {
+        // MikroTik-specific fields
+        document.getElementById('deviceHost').value = device.host || '';
+        document.getElementById('deviceUsername').value = device.username || '';
+        document.getElementById('mikrotikLhg60gIP').value = device.mikrotik_lhg60g_ip || '';
+        document.getElementById('mikrotikSshPort').value = device.mikrotik_ssh_port || '';
+        document.getElementById('mikrotikSshUsername').value = device.mikrotik_ssh_username || '';
+        document.getElementById('mikrotikSshPassword').value = '';
+        document.getElementById('mikrotikTunnelIP').value = device.mikrotik_tunnel_ip || '';
+        
+        // MikroTik notification settings
+        document.getElementById('notifyRssi').checked = device.notify_rssi === true;
+        document.getElementById('rssiThreshold').value = device.rssi_threshold !== undefined ? device.rssi_threshold : -66;
+        document.getElementById('notifyMikrotikPortSpeed').checked = device.notify_port_speed === true;
+        document.getElementById('portSpeedThreshold').value = device.port_speed_threshold !== undefined ? device.port_speed_threshold : 1000;
+        document.getElementById('notifyMikrotikOffline').checked = device.notifyOffline === true;
+        
+        // MikroTik display preferences
+        document.getElementById('showRssi').checked = device.show_rssi === true;
+        document.getElementById('showMikrotikPortSpeed').checked = device.show_port_speed === true;
+    } else {
+        // ONU fields
+        document.getElementById('deviceHost').value = device.host || '';
+        document.getElementById('deviceUsername').value = device.username || '';
+        document.getElementById('devicePassword').value = '';
+        document.getElementById('devicePassword').required = false;
+        
+        // ONU notification settings
+        document.getElementById('notifyRxPower').checked = device.notifyRxPower === true;
+        document.getElementById('rxPowerThreshold').value = device.rxPowerThreshold !== undefined ? device.rxPowerThreshold : -27;
+        document.getElementById('notifyTempHigh').checked = device.notifyTempHigh === true;
+        document.getElementById('tempHighThreshold').value = device.tempHighThreshold !== undefined ? device.tempHighThreshold : 70;
+        document.getElementById('notifyTempLow').checked = device.notifyTempLow === true;
+        document.getElementById('tempLowThreshold').value = device.tempLowThreshold !== undefined ? device.tempLowThreshold : 0;
+        document.getElementById('notifyOffline').checked = device.notifyOffline === true;
+        
+        // Ethernet Port Monitoring settings
+        document.getElementById('notifyPortDown').checked = device.notifyPortDown === true;
+        
+        // Port monitoring configuration
+        const portMonitoringConfig = device.portMonitoringConfig || {};
+        document.getElementById('port1Speed').value = portMonitoringConfig['1']?.speed || '';
+        document.getElementById('port1NotifyDown').checked = portMonitoringConfig['1']?.notifyDown || false;
+        document.getElementById('port2Speed').value = portMonitoringConfig['2']?.speed || '';
+        document.getElementById('port2NotifyDown').checked = portMonitoringConfig['2']?.notifyDown || false;
+        document.getElementById('port3Speed').value = portMonitoringConfig['3']?.speed || '';
+        document.getElementById('port3NotifyDown').checked = portMonitoringConfig['3']?.notifyDown || false;
+        document.getElementById('port4Speed').value = portMonitoringConfig['4']?.speed || '';
+        document.getElementById('port4NotifyDown').checked = portMonitoringConfig['4']?.notifyDown || false;
+        
+        // ONU display preferences
+        document.getElementById('showTemperature').checked = device.showTemperature === true;
+        document.getElementById('showUIType').checked = device.showUIType === true;
+        document.getElementById('showTXPower').checked = device.showTXPower === true;
+        
+        // Port speed preferences
+        const showPortSpeeds = device.showPortSpeeds === true;
+        document.getElementById('showPortSpeeds').checked = showPortSpeeds;
+        document.getElementById('portSpeedsConfig').style.display = showPortSpeeds ? 'block' : 'none';
+        
+        const portSelections = device.portSelections || [];
+        document.getElementById('showPort1').checked = portSelections.includes('1');
+        document.getElementById('showPort2').checked = portSelections.includes('2');
+        document.getElementById('showPort3').checked = portSelections.includes('3');
+        document.getElementById('showPort4').checked = portSelections.includes('4');
+    }
+    
     document.getElementById('deviceGroup').value = device.groupId || '';
     
-    // Monitoring settings
+    // Monitoring settings (common to both types)
     document.getElementById('monitoringInterval').value = device.monitoringInterval !== undefined ? device.monitoringInterval : 900;
     document.getElementById('retryAttempts').value = device.retryAttempts !== undefined ? device.retryAttempts : 3;
     document.getElementById('retryDelay').value = device.retryDelay !== undefined ? device.retryDelay : 3;
-    
-    // Notification settings
-    document.getElementById('notifyRxPower').checked = device.notifyRxPower === true;
-    document.getElementById('rxPowerThreshold').value = device.rxPowerThreshold !== undefined ? device.rxPowerThreshold : -27;
-    document.getElementById('notifyTempHigh').checked = device.notifyTempHigh === true;
-    document.getElementById('tempHighThreshold').value = device.tempHighThreshold !== undefined ? device.tempHighThreshold : 70;
-    document.getElementById('notifyTempLow').checked = device.notifyTempLow === true;
-    document.getElementById('tempLowThreshold').value = device.tempLowThreshold !== undefined ? device.tempLowThreshold : 0;
-    document.getElementById('notifyOffline').checked = device.notifyOffline === true;
-    
-    // Ethernet Port Monitoring settings
-    document.getElementById('notifyPortDown').checked = device.notifyPortDown === true;
-    
-    // Port monitoring configuration
-    const portMonitoringConfig = device.portMonitoringConfig || {};
-    document.getElementById('port1Speed').value = portMonitoringConfig['1']?.speed || '';
-    document.getElementById('port1NotifyDown').checked = portMonitoringConfig['1']?.notifyDown || false;
-    document.getElementById('port2Speed').value = portMonitoringConfig['2']?.speed || '';
-    document.getElementById('port2NotifyDown').checked = portMonitoringConfig['2']?.notifyDown || false;
-    document.getElementById('port3Speed').value = portMonitoringConfig['3']?.speed || '';
-    document.getElementById('port3NotifyDown').checked = portMonitoringConfig['3']?.notifyDown || false;
-    document.getElementById('port4Speed').value = portMonitoringConfig['4']?.speed || '';
-    document.getElementById('port4NotifyDown').checked = portMonitoringConfig['4']?.notifyDown || false;
-    
-    // Display preferences
-    document.getElementById('showTemperature').checked = device.showTemperature === true;
-    document.getElementById('showUIType').checked = device.showUIType === true;
-    document.getElementById('showTXPower').checked = device.showTXPower === true;
-    
-    // Port speed preferences
-    const showPortSpeeds = device.showPortSpeeds === true;
-    document.getElementById('showPortSpeeds').checked = showPortSpeeds;
-    document.getElementById('portSpeedsConfig').style.display = showPortSpeeds ? 'block' : 'none';
-    
-    const portSelections = device.portSelections || [];
-    document.getElementById('showPort1').checked = portSelections.includes('1');
-    document.getElementById('showPort2').checked = portSelections.includes('2');
-    document.getElementById('showPort3').checked = portSelections.includes('3');
-    document.getElementById('showPort4').checked = portSelections.includes('4');
     
     const modal = new bootstrap.Modal(document.getElementById('addDeviceModal'));
     modal.show();
@@ -824,6 +925,10 @@ function resetDeviceForm() {
     document.getElementById('deviceId').value = '';
     document.getElementById('devicePassword').required = true;
     document.getElementById('deviceGroup').value = '';
+    document.getElementById('deviceType').value = 'blue';
+    
+    // Toggle fields to show ONU by default
+    toggleDeviceTypeFields();
     
     // Reset to defaults
     document.getElementById('monitoringInterval').value = 900;
@@ -832,6 +937,8 @@ function resetDeviceForm() {
     document.getElementById('rxPowerThreshold').value = -27;
     document.getElementById('tempHighThreshold').value = 70;
     document.getElementById('tempLowThreshold').value = 0;
+    document.getElementById('rssiThreshold').value = -66;
+    document.getElementById('portSpeedThreshold').value = 1000;
     
     // Reset notification settings to default (unchecked)
     document.getElementById('notifyRxPower').checked = false;
@@ -839,6 +946,9 @@ function resetDeviceForm() {
     document.getElementById('notifyTempLow').checked = false;
     document.getElementById('notifyOffline').checked = false;
     document.getElementById('notifyPortDown').checked = false;
+    document.getElementById('notifyRssi').checked = false;
+    document.getElementById('notifyMikrotikPortSpeed').checked = false;
+    document.getElementById('notifyMikrotikOffline').checked = false;
     
     // Reset port monitoring configuration
     document.getElementById('port1Speed').value = '';
@@ -860,17 +970,116 @@ function resetDeviceForm() {
     document.getElementById('showPort2').checked = false;
     document.getElementById('showPort3').checked = false;
     document.getElementById('showPort4').checked = false;
+    document.getElementById('showRssi').checked = false;
+    document.getElementById('showMikrotikPortSpeed').checked = false;
 }
 
 // Save device
 async function saveDevice() {
     const deviceId = document.getElementById('deviceId').value;
+    const deviceType = document.getElementById('deviceType').value;
     const name = document.getElementById('deviceName').value;
+    const groupId = document.getElementById('deviceGroup').value || null;
+    
+    if (deviceType === 'mikrotik_lhg60g') {
+        // Save MikroTik device
+        await saveMikroTikDevice(deviceId, name, groupId);
+    } else {
+        // Save ONU device
+        await saveONUDevice(deviceId, name, groupId, deviceType);
+    }
+}
+
+// Save MikroTik device
+async function saveMikroTikDevice(deviceId, name, groupId) {
+    const lhg60gIP = document.getElementById('mikrotikLhg60gIP').value;
+    const sshPort = parseInt(document.getElementById('mikrotikSshPort').value);
+    const sshUsername = document.getElementById('mikrotikSshUsername').value;
+    const sshPassword = document.getElementById('mikrotikSshPassword').value;
+    const tunnelIP = document.getElementById('mikrotikTunnelIP').value;
+    
+    if (!lhg60gIP || !sshPort || !sshUsername || !tunnelIP) {
+        showToast('Please fill all MikroTik required fields', 'danger');
+        return;
+    }
+    
+    if (!deviceId && !sshPassword) {
+        showToast('SSH Password is required for new devices', 'danger');
+        return;
+    }
+    
+    // Collect configuration
+    const config = {
+        monitoringInterval: parseInt(document.getElementById('monitoringInterval').value),
+        retryAttempts: parseInt(document.getElementById('retryAttempts').value),
+        retryDelay: parseInt(document.getElementById('retryDelay').value),
+        notifyOffline: document.getElementById('notifyMikrotikOffline').checked
+    };
+    
+    const data = {
+        name,
+        lhg60gIP,
+        sshPort,
+        sshUsername,
+        tunnelIP,
+        groupId,
+        config,
+        notifyRssi: document.getElementById('notifyRssi').checked,
+        rssiThreshold: parseInt(document.getElementById('rssiThreshold').value),
+        notifyPortSpeed: document.getElementById('notifyMikrotikPortSpeed').checked,
+        portSpeedThreshold: parseInt(document.getElementById('portSpeedThreshold').value),
+        showRssi: document.getElementById('showRssi').checked,
+        showPortSpeed: document.getElementById('showMikrotikPortSpeed').checked
+    };
+    
+    if (sshPassword) {
+        data.sshPassword = sshPassword;
+    }
+    
+    try {
+        let response;
+        if (deviceId) {
+            // Update
+            response = await fetch(`/api/mikrotik/devices/${deviceId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+        } else {
+            // Create
+            response = await fetch('/api/mikrotik/devices', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+        }
+        
+        if (response.ok) {
+            const result = await response.json();
+            const modal = bootstrap.Modal.getInstance(document.getElementById('addDeviceModal'));
+            modal.hide();
+            resetDeviceForm();
+            
+            let message = deviceId ? 'MikroTik device updated successfully' : 'MikroTik device added successfully';
+            if (result.provisioning) {
+                message += `. Provisioning: ${result.provisioning.message || 'completed'}`;
+            }
+            showToast(message, 'success');
+            await loadDevices();
+        } else {
+            const error = await response.json();
+            showToast(error.error || 'Failed to save MikroTik device', 'danger');
+        }
+    } catch (error) {
+        showToast('Network error', 'danger');
+    }
+}
+
+// Save ONU device
+async function saveONUDevice(deviceId, name, groupId, onuType) {
     const host = document.getElementById('deviceHost').value;
     const username = document.getElementById('deviceUsername').value;
     const password = document.getElementById('devicePassword').value;
-    const onuType = document.getElementById('deviceType').value;
-    const groupId = document.getElementById('deviceGroup').value || null;
     
     // Collect port monitoring configuration
     const portMonitoringConfig = {
@@ -964,17 +1173,37 @@ async function saveDevice() {
 
 // Delete device
 async function deleteDevice(deviceId) {
+    const device = devices.find(d => d.id === deviceId);
+    if (!device) {
+        showToast('Device not found', 'danger');
+        return;
+    }
+    
     if (!confirm('Are you sure you want to delete this device?')) {
         return;
     }
     
     try {
-        const response = await fetch(`/api/devices/${deviceId}`, {
-            method: 'DELETE'
-        });
+        let response;
+        if (device.device_type === 'mikrotik_lhg60g') {
+            // Delete MikroTik device (includes cleanup)
+            response = await fetch(`/api/mikrotik/devices/${deviceId}`, {
+                method: 'DELETE'
+            });
+        } else {
+            // Delete ONU device
+            response = await fetch(`/api/devices/${deviceId}`, {
+                method: 'DELETE'
+            });
+        }
         
         if (response.ok) {
-            showToast('Device deleted successfully', 'success');
+            const result = await response.json();
+            let message = 'Device deleted successfully';
+            if (result.cleanup) {
+                message += `. Cleanup: ${result.cleanup.message || 'completed'}`;
+            }
+            showToast(message, 'success');
             await loadDevices();
         } else {
             showToast('Failed to delete device', 'danger');
@@ -1108,6 +1337,150 @@ async function saveSMSConfig() {
         } else {
             const error = await response.json();
             showToast(error.error || 'Failed to save configuration', 'danger');
+        }
+    } catch (error) {
+        showToast('Network error', 'danger');
+    }
+}
+
+// Toggle device type fields
+function toggleDeviceTypeFields() {
+    const deviceType = document.getElementById('deviceType').value;
+    
+    // Toggle field sections
+    const mikrotikFields = document.getElementById('mikrotikFields');
+    const onuNotifications = document.getElementById('onuNotifications');
+    const mikrotikNotifications = document.getElementById('mikrotikNotifications');
+    const onuPortMonitoring = document.getElementById('onuPortMonitoring');
+    const onuDisplayPrefs = document.getElementById('onuDisplayPrefs');
+    const mikrotikDisplayPrefs = document.getElementById('mikrotikDisplayPrefs');
+    
+    if (deviceType === 'mikrotik_lhg60g') {
+        // Show MikroTik fields, hide ONU fields
+        mikrotikFields.style.display = 'block';
+        onuNotifications.style.display = 'none';
+        mikrotikNotifications.style.display = 'block';
+        onuPortMonitoring.style.display = 'none';
+        onuDisplayPrefs.style.display = 'none';
+        mikrotikDisplayPrefs.style.display = 'block';
+        
+        // Hide ONU-specific basic fields
+        document.getElementById('deviceHost').parentElement.style.display = 'none';
+        document.getElementById('deviceUsername').parentElement.style.display = 'none';
+        document.getElementById('devicePassword').parentElement.style.display = 'none';
+    } else {
+        // Show ONU fields, hide MikroTik fields
+        mikrotikFields.style.display = 'none';
+        onuNotifications.style.display = 'block';
+        mikrotikNotifications.style.display = 'none';
+        onuPortMonitoring.style.display = 'block';
+        onuDisplayPrefs.style.display = 'block';
+        mikrotikDisplayPrefs.style.display = 'none';
+        
+        // Show ONU-specific basic fields
+        document.getElementById('deviceHost').parentElement.style.display = 'block';
+        document.getElementById('deviceUsername').parentElement.style.display = 'block';
+        document.getElementById('devicePassword').parentElement.style.display = 'block';
+    }
+}
+
+// Load MikroTik Control Router configuration
+async function loadMikroTikControlConfig() {
+    try {
+        const response = await fetch('/api/mikrotik/control-config');
+        if (response.ok) {
+            const config = await response.json();
+            document.getElementById('controlRouterIP').value = config.controlIp || '';
+            document.getElementById('controlRouterUsername').value = config.username || '';
+            document.getElementById('wireguardInterface').value = config.wireguardInterface || '';
+            document.getElementById('lhg60gInterface').value = config.lhg60gInterface || '';
+            document.getElementById('basePort').value = config.basePort || '';
+            // Don't populate password for security
+            document.getElementById('controlRouterPassword').value = '';
+        }
+    } catch (error) {
+        console.error('Failed to load MikroTik control config:', error);
+    }
+}
+
+// Save MikroTik Control Router configuration
+async function saveMikroTikControlConfig() {
+    const controlIp = document.getElementById('controlRouterIP').value.trim();
+    const username = document.getElementById('controlRouterUsername').value.trim();
+    const password = document.getElementById('controlRouterPassword').value;
+    const wireguardInterface = document.getElementById('wireguardInterface').value.trim();
+    const lhg60gInterface = document.getElementById('lhg60gInterface').value.trim();
+    const basePort = parseInt(document.getElementById('basePort').value);
+    
+    if (!controlIp || !username || !wireguardInterface || !lhg60gInterface || !basePort) {
+        showToast('Please fill all required fields', 'danger');
+        return;
+    }
+    
+    const data = {
+        controlIp,
+        username,
+        wireguardInterface,
+        lhg60gInterface,
+        basePort
+    };
+    
+    if (password) {
+        data.password = password;
+    }
+    
+    try {
+        const response = await fetch('/api/mikrotik/control-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            const modal = bootstrap.Modal.getInstance(document.getElementById('mikrotikControlModal'));
+            modal.hide();
+            showToast('MikroTik control router configuration saved successfully', 'success');
+        } else {
+            const error = await response.json();
+            showToast(error.error || 'Failed to save configuration', 'danger');
+        }
+    } catch (error) {
+        showToast('Network error', 'danger');
+    }
+}
+
+// Test MikroTik Control Router connection
+async function testControlRouterConnection() {
+    const controlIp = document.getElementById('controlRouterIP').value.trim();
+    const username = document.getElementById('controlRouterUsername').value.trim();
+    const password = document.getElementById('controlRouterPassword').value;
+    
+    if (!controlIp || !username) {
+        showToast('Please enter control router IP and username', 'warning');
+        return;
+    }
+    
+    // If password is empty and config exists, we need password from user
+    if (!password) {
+        showToast('Password is required to test connection', 'warning');
+        return;
+    }
+    
+    showToast('Testing connection...', 'info');
+    
+    try {
+        const response = await fetch('/api/mikrotik/control-config/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ controlIp, username, password })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showToast('Connection successful!', 'success');
+        } else {
+            showToast(result.error || 'Connection failed', 'danger');
         }
     } catch (error) {
         showToast('Network error', 'danger');
