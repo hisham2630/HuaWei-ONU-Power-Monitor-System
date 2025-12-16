@@ -837,9 +837,6 @@ function editDevice(deviceId) {
     const deviceType = device.device_type || device.onuType || 'blue';
     document.getElementById('deviceType').value = deviceType;
     
-    // Toggle fields based on device type
-    toggleDeviceTypeFields();
-    
     if (deviceType === 'mikrotik_lhg60g') {
         // MikroTik-specific fields
         document.getElementById('deviceHost').value = device.host || '';
@@ -914,6 +911,9 @@ function editDevice(deviceId) {
     document.getElementById('retryAttempts').value = device.retryAttempts !== undefined ? device.retryAttempts : 3;
     document.getElementById('retryDelay').value = device.retryDelay !== undefined ? device.retryDelay : 3;
     
+    // IMPORTANT: Toggle fields AFTER all fields are populated
+    toggleDeviceTypeFields();
+    
     const modal = new bootstrap.Modal(document.getElementById('addDeviceModal'));
     modal.show();
 }
@@ -926,9 +926,6 @@ function resetDeviceForm() {
     document.getElementById('devicePassword').required = true;
     document.getElementById('deviceGroup').value = '';
     document.getElementById('deviceType').value = 'blue';
-    
-    // Toggle fields to show ONU by default
-    toggleDeviceTypeFields();
     
     // Reset to defaults
     document.getElementById('monitoringInterval').value = 900;
@@ -972,6 +969,9 @@ function resetDeviceForm() {
     document.getElementById('showPort4').checked = false;
     document.getElementById('showRssi').checked = false;
     document.getElementById('showMikrotikPortSpeed').checked = false;
+    
+    // IMPORTANT: Toggle fields to show ONU by default
+    toggleDeviceTypeFields();
 }
 
 // Save device
