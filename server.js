@@ -448,18 +448,18 @@ app.get('/api/mikrotik/control-config', requireAuth, (req, res) => {
 // API: Save MikroTik control router configuration
 app.post('/api/mikrotik/control-config', requireAuth, (req, res) => {
   try {
-    const { controlIp, controlUsername, controlPassword, wireguardInterface, lhg60gEthernetInterface, basePort } = req.body;
+    const { controlIp, username, password, wireguardInterface, lhg60gInterface, basePort } = req.body;
     
-    if (!controlIp || !controlUsername || !controlPassword || !wireguardInterface || !lhg60gEthernetInterface) {
-      return res.status(400).json({ error: 'All fields are required' });
+    if (!controlIp || !username || !wireguardInterface || !lhg60gInterface) {
+      return res.status(400).json({ error: 'All fields are required (password optional when updating)' });
     }
     
     db.saveMikroTikControlConfig(
       controlIp,
-      controlUsername,
-      controlPassword,
+      username,
+      password,  // Can be undefined when updating
       wireguardInterface,
-      lhg60gEthernetInterface,
+      lhg60gInterface,
       basePort || 60001
     );
     
@@ -472,9 +472,9 @@ app.post('/api/mikrotik/control-config', requireAuth, (req, res) => {
 // API: Test MikroTik control router connection
 app.post('/api/mikrotik/control-config/test', requireAuth, async (req, res) => {
   try {
-    const { controlIp, controlUsername, controlPassword } = req.body;
+    const { controlIp, username, password } = req.body;
     
-    if (!controlIp || !controlUsername || !controlPassword) {
+    if (!controlIp || !username || !password) {
       return res.status(400).json({ error: 'All credentials required for testing' });
     }
     
@@ -483,8 +483,8 @@ app.post('/api/mikrotik/control-config/test', requireAuth, async (req, res) => {
     
     const result = await sshManager.testConnection({
       control_ip: controlIp,
-      control_username: controlUsername,
-      control_password: controlPassword
+      control_username: username,
+      control_password: password
     });
     
     res.json(result);
