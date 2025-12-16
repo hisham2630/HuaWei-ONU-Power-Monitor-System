@@ -15,6 +15,8 @@ const MonitoringScheduler = require('./lib/monitoringScheduler');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'change-this-secret-key';
+const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || 'onu_monitor_session';
+const SESSION_DB_NAME = process.env.SESSION_DB_NAME || 'sessions.db';
 
 // Initialize database
 const db = new DatabaseManager();
@@ -37,10 +39,11 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Session configuration with database storage
 app.use(session({
   store: new SQLiteStore({
-    db: 'sessions.db',
+    db: SESSION_DB_NAME,
     dir: './data',
     table: 'sessions'
   }),
+  name: SESSION_COOKIE_NAME,
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
@@ -366,54 +369,80 @@ app.get('/api/devices/cached-status', requireAuth, (req, res) => {
   }
 });
 
-// API: Monitor all devices (parallel batch processing)
+// API: Monitor all devices (parallel batch processing with concurrency limit)
 app.post('/api/devices/monitor-all', requireAuth, async (req, res) => {
   try {
     const devices = db.getAllONUDevices();
-    
-    // Process all devices in parallel
-    const monitoringPromises = devices.map(async (device) => {
-      try {
-        // Check if port speeds should be included based on device configuration
-        const includePortSpeeds = device.showPortSpeeds === true;
-        
-        const result = await monitorONU({
-          host: device.host,
-          username: device.username,
-          password: device.password
-        }, includePortSpeeds);
-        
-        // Update monitoring cache with the result
-        let status, data;
-        if (result.success) {
-          status = 'online';
-          data = result.data;
-        } else {
-          status = 'offline';
-          data = null;
-        }
-        db.updateMonitoringCache(device.id, status, data);
-        
-        return { deviceId: device.id, result };
-      } catch (error) {
-        return {
-          deviceId: device.id,
-          result: {
-            success: false,
-            error: error.message
-          }
-        };
-      }
-    });
-    
-    // Wait for all devices to complete
-    const completedResults = await Promise.all(monitoringPromises);
-    
-    // Transform results into object keyed by device ID
+    const maxConcurrent = 10; // Limit concurrent monitoring operations (conservative for SSH)
     const results = {};
-    completedResults.forEach(({ deviceId, result }) => {
-      results[deviceId] = result;
-    });
+    
+    // Process devices in batches to avoid overwhelming the server
+    for (let i = 0; i < devices.length; i += maxConcurrent) {
+      const batch = devices.slice(i, i + maxConcurrent);
+      
+      console.log(`Processing batch ${Math.floor(i / maxConcurrent) + 1}/${Math.ceil(devices.length / maxConcurrent)} (${batch.length} devices)`);
+      
+      const batchPromises = batch.map(async (device) => {
+        try {
+          // Get full device with credentials
+          const fullDevice = db.getDeviceWithCredentials(device.id);
+          if (!fullDevice) {
+            return {
+              deviceId: device.id,
+              result: {
+                success: false,
+                error: 'Device not found'
+              }
+            };
+          }
+          
+          let result;
+          
+          // Check device type and call appropriate monitoring function
+          if (fullDevice.device_type === 'mikrotik_lhg60g') {
+            // MikroTik device monitoring
+            result = await mikrotikMonitor.monitorMikroTik(fullDevice);
+          } else {
+            // ONU device monitoring
+            const includePortSpeeds = fullDevice.showPortSpeeds === true;
+            result = await monitorONU({
+              host: fullDevice.host,
+              username: fullDevice.username,
+              password: fullDevice.password
+            }, includePortSpeeds);
+          }
+          
+          // Update monitoring cache with the result
+          let status, data;
+          if (result.success) {
+            status = 'online';
+            data = result.data;
+          } else {
+            status = 'offline';
+            data = null;
+          }
+          db.updateMonitoringCache(device.id, status, data);
+          
+          return { deviceId: device.id, result };
+        } catch (error) {
+          return {
+            deviceId: device.id,
+            result: {
+              success: false,
+              error: error.message
+            }
+          };
+        }
+      });
+      
+      // Wait for current batch to complete
+      const batchResults = await Promise.all(batchPromises);
+      
+      // Add batch results to main results object
+      batchResults.forEach(({ deviceId, result }) => {
+        results[deviceId] = result;
+      });
+    }
     
     res.json(results);
   } catch (error) {

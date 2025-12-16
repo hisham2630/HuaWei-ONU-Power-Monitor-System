@@ -5,6 +5,7 @@ let monitoringData = {};
 let deviceStatuses = {};
 let collapsedGroups = new Set();
 let lastUpdatedTimestamp = null;
+let isRefreshingAll = false; // Flag to track if refresh all is in progress
 
 // Check auth on load
 window.addEventListener('DOMContentLoaded', async () => {
@@ -409,14 +410,19 @@ function renderSensorBadges(device, status, data) {
       }
       
       // Port Speed badge - only show if enabled
-      if (data.portSpeed !== undefined && device.showMikrotikPortSpeed) {
+      if (data.portSpeed !== undefined && data.portSpeed !== null && device.showMikrotikPortSpeed) {
         const speedClass = getMikrotikPortSpeedBadgeClass(data.portSpeed);
         let formattedSpeed;
-        if (data.portSpeed >= 1000) {
+        
+        // Handle no-link status
+        if (data.portSpeed === 'no-link' || data.portSpeed === 'No Link') {
+          formattedSpeed = 'No Link';
+        } else if (data.portSpeed >= 1000) {
           formattedSpeed = `${(data.portSpeed / 1000).toFixed(1)}G`;
         } else {
           formattedSpeed = `${data.portSpeed}M`;
         }
+        
         badges += `<span class="sensor-badge ${speedClass}"><i class="bi bi-diagram-3"></i> ${formattedSpeed}</span>`;
       }
     } else {
@@ -536,6 +542,8 @@ function getRSSIBadgeClass(rssi) {
 
 // Get port speed badge class for MikroTik devices
 function getMikrotikPortSpeedBadgeClass(speed) {
+    // Handle no-link status
+    if (speed === 'no-link' || speed === 'No Link') return 'port-speed-down';
     if (speed >= 1000) return 'port-speed-1g';   // Green for 1Gbps+
     if (speed >= 100) return 'port-speed-100m';  // Blue for 100Mbps
     if (speed >= 10) return 'port-speed-10m';    // Yellow for 10Mbps
@@ -684,8 +692,16 @@ setInterval(async () => {
     }
 }, 30000); // Check every 30 seconds
 
-// Refresh all devices status (batch mode)
+// Refresh all devices status - uses sequential mode for better visual feedback
 async function refreshAllStatus() {
+    // Always use sequential mode so users can see progress as each device completes
+    await refreshAllStatusSequential();
+}
+
+// Refresh all devices status (batch mode - all at once, faster for many devices)
+async function refreshAllStatusBatch() {
+    const totalDevices = devices.length;
+    
     // Set all devices to checking state immediately
     for (const device of devices) {
         updateDeviceCard(device.id, 'checking', null);
@@ -711,7 +727,7 @@ async function refreshAllStatus() {
                 updateDeviceCard(deviceId, 'online', result.data);
             } else {
                 // Check if it's a connectivity issue or other error
-                if (result.error && result.error.includes('offline')) {
+                if (result.error && (result.error.includes('offline') || result.error.includes('not reachable'))) {
                     updateDeviceCard(deviceId, 'offline', null);
                 } else {
                     updateDeviceCard(deviceId, 'error', null);
@@ -724,6 +740,71 @@ async function refreshAllStatus() {
         for (const device of devices) {
             updateDeviceCard(device.id, 'error', null);
         }
+    }
+    
+    // Update timestamp after all devices are refreshed
+    lastUpdatedTimestamp = new Date();
+    localStorage.setItem('lastManualRefresh', lastUpdatedTimestamp.toISOString());
+    updateLastUpdatedDisplay();
+}
+
+// Refresh all devices status (sequential mode - one by one, better visual feedback)
+async function refreshAllStatusSequential() {
+    const totalDevices = devices.length;
+    const maxConcurrent = 10; // Process 3 devices at a time
+    let completedCount = 0;
+    
+    // Set ALL devices to checking state immediately
+    for (const device of devices) {
+        updateDeviceCard(device.id, 'checking', null);
+    }
+    
+    // Process devices in small batches for better UX
+    for (let i = 0; i < devices.length; i += maxConcurrent) {
+        const batch = devices.slice(i, i + maxConcurrent);
+        
+        // Process batch in parallel
+        const batchPromises = batch.map(async (device) => {
+            try {
+                // Determine API endpoint based on device type
+                let apiUrl, method = 'POST';
+                
+                if (device.device_type === 'mikrotik_lhg60g') {
+                    // MikroTik device monitoring
+                    apiUrl = `/api/mikrotik/devices/${device.id}/monitor`;
+                } else {
+                    // ONU device monitoring
+                    apiUrl = `/api/devices/${device.id}/monitor`;
+                }
+                
+                // Fetch device data
+                const response = await fetch(apiUrl, { method });
+                const result = await response.json();
+                
+                // Update device card based on result immediately
+                if (result.success) {
+                    updateDeviceCard(device.id, 'online', result.data);
+                } else {
+                    // Check if it's a connectivity issue or other error
+                    if (result.error && (result.error.includes('offline') || result.error.includes('not reachable'))) {
+                        updateDeviceCard(device.id, 'offline', null);
+                    } else {
+                        updateDeviceCard(device.id, 'error', null);
+                    }
+                }
+                
+                completedCount++;
+                console.log(`Completed ${completedCount}/${totalDevices}: ${device.name}`);
+                
+            } catch (error) {
+                console.error(`Failed to refresh device ${device.id}:`, error);
+                updateDeviceCard(device.id, 'error', null);
+                completedCount++;
+            }
+        });
+        
+        // Wait for current batch to complete before starting next batch
+        await Promise.all(batchPromises);
     }
     
     // Update timestamp after all devices are refreshed
@@ -814,11 +895,31 @@ async function refreshDevice(deviceId, showMessage = true) {
 
 // Refresh all
 async function refreshAll() {
-    showToast('Refreshing all devices...', 'info');
+    const totalDevices = devices.length;
     
-    await refreshAllStatus();
+    if (totalDevices === 0) {
+        showToast('No devices to refresh', 'warning');
+        return;
+    }
     
-    showToast('All devices refreshed', 'success');
+    if (isRefreshingAll) {
+        showToast('Refresh already in progress', 'warning');
+        return;
+    }
+    
+    isRefreshingAll = true;
+    
+    // Show message
+    showToast(`Refreshing ${totalDevices} devices (updating as they complete)...`, 'info');
+    
+    try {
+        await refreshAllStatus();
+        showToast(`All ${totalDevices} device${totalDevices > 1 ? 's' : ''} refreshed successfully`, 'success');
+    } catch (error) {
+        showToast('Refresh failed: ' + error.message, 'danger');
+    } finally {
+        isRefreshingAll = false;
+    }
 }
 
 // Edit device
