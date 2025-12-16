@@ -841,22 +841,22 @@ function editDevice(deviceId) {
         // MikroTik-specific fields
         document.getElementById('deviceHost').value = device.host || '';
         document.getElementById('deviceUsername').value = device.username || '';
-        document.getElementById('mikrotikLhg60gIP').value = device.mikrotik_lhg60g_ip || '';
-        document.getElementById('mikrotikSshPort').value = device.mikrotik_ssh_port || '';
-        document.getElementById('mikrotikSshUsername').value = device.mikrotik_ssh_username || '';
+        document.getElementById('mikrotikLhg60gIP').value = device.mikrotikLhg60gIp || '';
+        document.getElementById('mikrotikSshPort').value = device.mikrotikSshPort || '';
+        document.getElementById('mikrotikSshUsername').value = device.mikrotikSshUsername || '';
         document.getElementById('mikrotikSshPassword').value = '';
-        document.getElementById('mikrotikTunnelIP').value = device.mikrotik_tunnel_ip || '';
+        document.getElementById('mikrotikTunnelIP').value = device.mikrotikTunnelIp || '';
         
         // MikroTik notification settings
-        document.getElementById('notifyRssi').checked = device.notify_rssi === true;
-        document.getElementById('rssiThreshold').value = device.rssi_threshold !== undefined ? device.rssi_threshold : -66;
-        document.getElementById('notifyMikrotikPortSpeed').checked = device.notify_port_speed === true;
-        document.getElementById('portSpeedThreshold').value = device.port_speed_threshold !== undefined ? device.port_speed_threshold : 1000;
+        document.getElementById('notifyRssi').checked = device.notifyRssi === true;
+        document.getElementById('rssiThreshold').value = device.rssiThreshold !== undefined ? device.rssiThreshold : -66;
+        document.getElementById('notifyMikrotikPortSpeed').checked = device.notifyPortSpeed === true;
+        document.getElementById('portSpeedThreshold').value = device.portSpeedThreshold !== undefined ? device.portSpeedThreshold : 1000;
         document.getElementById('notifyMikrotikOffline').checked = device.notifyOffline === true;
         
         // MikroTik display preferences
-        document.getElementById('showRssi').checked = device.show_rssi === true;
-        document.getElementById('showMikrotikPortSpeed').checked = device.show_port_speed === true;
+        document.getElementById('showRssi').checked = device.showRssi === true;
+        document.getElementById('showMikrotikPortSpeed').checked = device.showMikrotikPortSpeed === true;
     } else {
         // ONU fields
         document.getElementById('deviceHost').value = device.host || '';

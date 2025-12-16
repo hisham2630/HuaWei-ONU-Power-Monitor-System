@@ -137,35 +137,56 @@ app.get('/api/devices', requireAuth, (req, res) => {
   try {
     const devices = db.getAllONUDevices();
     // Don't send passwords to client
-    const safeDevices = devices.map(d => ({
-      id: d.id,
-      name: d.name,
-      host: d.host,
-      username: d.username,
-      onuType: d.onuType,
-      groupId: d.groupId,
-      monitoringInterval: d.monitoringInterval,
-      retryAttempts: d.retryAttempts,
-      retryDelay: d.retryDelay,
-      notifyRxPower: d.notifyRxPower,
-      rxPowerThreshold: d.rxPowerThreshold,
-      notifyTempHigh: d.notifyTempHigh,
-      tempHighThreshold: d.tempHighThreshold,
-      notifyTempLow: d.notifyTempLow,
-      tempLowThreshold: d.tempLowThreshold,
-      notifyOffline: d.notifyOffline,
-      // Display preferences
-      showTemperature: d.showTemperature,
-      showUIType: d.showUIType,
-      showTXPower: d.showTXPower,
-      showPortSpeeds: d.showPortSpeeds,
-      portSelections: d.portSelections,
-      // Ethernet port monitoring preferences
-      portMonitoringConfig: d.portMonitoringConfig,
-      notifyPortDown: d.notifyPortDown,
-      createdAt: d.createdAt,
-      updatedAt: d.updatedAt
-    }));
+    const safeDevices = devices.map(d => {
+      const safeDevice = {
+        id: d.id,
+        name: d.name,
+        host: d.host,
+        device_type: d.device_type,
+        groupId: d.groupId,
+        monitoringInterval: d.monitoringInterval,
+        retryAttempts: d.retryAttempts,
+        retryDelay: d.retryDelay,
+        notifyOffline: d.notifyOffline,
+        createdAt: d.createdAt,
+        updatedAt: d.updatedAt
+      };
+
+      // Add device-type-specific fields
+      if (d.device_type === 'mikrotik_lhg60g') {
+        // MikroTik device fields
+        safeDevice.mikrotikLhg60gIp = d.mikrotikLhg60gIp;
+        safeDevice.mikrotikSshPort = d.mikrotikSshPort;
+        safeDevice.mikrotikTunnelIp = d.mikrotikTunnelIp;
+        safeDevice.mikrotikSshUsername = d.mikrotikSshUsername;
+        // Don't send password
+        safeDevice.notifyRssi = d.notifyRssi;
+        safeDevice.rssiThreshold = d.rssiThreshold;
+        safeDevice.notifyPortSpeed = d.notifyPortSpeed;
+        safeDevice.portSpeedThreshold = d.portSpeedThreshold;
+        safeDevice.showRssi = d.showRssi;
+        safeDevice.showMikrotikPortSpeed = d.showMikrotikPortSpeed;
+      } else {
+        // ONU device fields
+        safeDevice.username = d.username;
+        safeDevice.onuType = d.onuType;
+        safeDevice.notifyRxPower = d.notifyRxPower;
+        safeDevice.rxPowerThreshold = d.rxPowerThreshold;
+        safeDevice.notifyTempHigh = d.notifyTempHigh;
+        safeDevice.tempHighThreshold = d.tempHighThreshold;
+        safeDevice.notifyTempLow = d.notifyTempLow;
+        safeDevice.tempLowThreshold = d.tempLowThreshold;
+        safeDevice.showTemperature = d.showTemperature;
+        safeDevice.showUIType = d.showUIType;
+        safeDevice.showTXPower = d.showTXPower;
+        safeDevice.showPortSpeeds = d.showPortSpeeds;
+        safeDevice.portSelections = d.portSelections;
+        safeDevice.portMonitoringConfig = d.portMonitoringConfig;
+        safeDevice.notifyPortDown = d.notifyPortDown;
+      }
+
+      return safeDevice;
+    });
     res.json(safeDevices);
   } catch (error) {
     res.status(500).json({ error: error.message });
