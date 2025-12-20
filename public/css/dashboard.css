@@ -120,9 +120,8 @@
         .device-card {
             border: 1px solid #ddd;
             background: white;
-            min-width: 150px; /* Reduced minimum width */
-            max-width: 300px; /* Added maximum width */
-            width: fit-content; /* Allow card to size to content */
+            width: 200px;
+            height: 80px;
             flex: 0 0 auto;
             display: flex;
             flex-direction: column;

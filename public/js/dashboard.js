@@ -934,8 +934,14 @@ function editDevice(deviceId) {
     document.getElementById('deviceId').value = device.id;
     document.getElementById('deviceName').value = device.name || '';
     
-    // Determine device type
-    const deviceType = device.device_type || device.onuType || 'blue';
+    // Determine device type - map from backend format to form format
+    let deviceType = device.device_type || device.onuType || 'blue';
+    // Map onu_blue -> blue, onu_red -> red
+    if (deviceType === 'onu_blue') {
+        deviceType = 'blue';
+    } else if (deviceType === 'onu_red') {
+        deviceType = 'red';
+    }
     document.getElementById('deviceType').value = deviceType;
     
     if (deviceType === 'mikrotik_lhg60g') {
