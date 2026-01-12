@@ -77,13 +77,13 @@ app.get('/', (req, res) => {
 // API: Login
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
-  
+
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password required' });
   }
-  
+
   const user = db.authenticateUser(username, password);
-  
+
   if (user) {
     req.session.user = user;
     res.json({ success: true, user: { username: user.username } });
@@ -114,20 +114,20 @@ app.get('/api/auth/status', (req, res) => {
 // API: Change password
 app.post('/api/auth/change-password', requireAuth, (req, res) => {
   const { currentPassword, newPassword } = req.body;
-  
+
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ error: 'Current and new password required' });
   }
-  
+
   // Verify current password
   const user = db.authenticateUser(req.session.user.username, currentPassword);
   if (!user) {
     return res.status(401).json({ error: 'Current password is incorrect' });
   }
-  
+
   // Change password
   const success = db.changePassword(req.session.user.username, newPassword);
-  
+
   if (success) {
     res.json({ success: true });
   } else {
@@ -183,6 +183,7 @@ app.get('/api/devices', requireAuth, (req, res) => {
         safeDevice.showUIType = d.showUIType;
         safeDevice.showTXPower = d.showTXPower;
         safeDevice.showPortSpeeds = d.showPortSpeeds;
+        safeDevice.showOnlineDuration = d.showOnlineDuration;
         safeDevice.portSelections = d.portSelections;
         safeDevice.portMonitoringConfig = d.portMonitoringConfig;
         safeDevice.notifyPortDown = d.notifyPortDown;
@@ -200,21 +201,21 @@ app.get('/api/devices', requireAuth, (req, res) => {
 app.post('/api/devices', requireAuth, (req, res) => {
   try {
     const { name, host, username, password, onuType, groupId, config } = req.body;
-    
+
     if (!name || !host || !username || !password || !onuType) {
       return res.status(400).json({ error: 'All fields are required' });
     }
-    
+
     if (!['blue', 'red'].includes(onuType)) {
       return res.status(400).json({ error: 'Invalid ONU type' });
     }
-    
+
     // Add groupId to config if provided
     const updatedConfig = config || {};
     if (groupId !== undefined) {
       updatedConfig.groupId = groupId;
     }
-    
+
     const id = db.addONUDevice(name, host, username, password, onuType, updatedConfig);
     res.json({ success: true, id: id });
   } catch (error) {
@@ -227,23 +228,23 @@ app.put('/api/devices/:id', requireAuth, (req, res) => {
   try {
     const { id } = req.params;
     const { name, host, username, password, onuType, groupId, config } = req.body;
-    
+
     if (!name || !host || !username || !onuType) {
       return res.status(400).json({ error: 'Name, host, username, and ONU type are required' });
     }
-    
+
     if (!['blue', 'red'].includes(onuType)) {
       return res.status(400).json({ error: 'Invalid ONU type' });
     }
-    
+
     // Add groupId to config if provided
     const updatedConfig = config || {};
     if (groupId !== undefined) {
       updatedConfig.groupId = groupId;
     }
-    
+
     const success = db.updateONUDevice(id, name, host, username, password || null, onuType, updatedConfig);
-    
+
     if (success) {
       res.json({ success: true });
     } else {
@@ -259,7 +260,7 @@ app.delete('/api/devices/:id', requireAuth, (req, res) => {
   try {
     const { id } = req.params;
     const success = db.deleteONUDevice(id);
-    
+
     if (success) {
       res.json({ success: true });
     } else {
@@ -275,20 +276,22 @@ app.post('/api/devices/:id/monitor', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const device = db.getONUDevice(id);
-    
+
     if (!device) {
       return res.status(404).json({ error: 'Device not found' });
     }
-    
+
     // Check if port speeds should be included based on device configuration
     const includePortSpeeds = device.showPortSpeeds === true;
-    
+    // Check if online duration should be included (Blue UI only)
+    const includeOnlineDuration = device.showOnlineDuration === true && device.onuType === 'blue';
+
     const result = await monitorONU({
       host: device.host,
       username: device.username,
       password: device.password
-    }, includePortSpeeds);
-    
+    }, includePortSpeeds, includeOnlineDuration);
+
     // Update monitoring cache with the fresh result
     let status, data;
     if (result.success) {
@@ -299,7 +302,7 @@ app.post('/api/devices/:id/monitor', requireAuth, async (req, res) => {
       data = null;
     }
     db.updateMonitoringCache(id, status, data);
-    
+
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -311,21 +314,21 @@ app.post('/api/devices/:id/port-speeds', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const device = db.getONUDevice(id);
-    
+
     if (!device) {
       return res.status(404).json({ error: 'Device not found' });
     }
-    
+
     // Login to the device
     const loginResult = await require('./lib/onuMonitor').login(device.host, device.username, device.password);
-    
+
     if (!loginResult.success) {
       return res.status(401).json({ error: 'Failed to login to device' });
     }
-    
+
     // Get Ethernet port speeds
     const portSpeeds = await getEthernetPortSpeeds(loginResult.apiClient, loginResult.cookies, device.host);
-    
+
     res.json({ success: true, portSpeeds });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -337,11 +340,11 @@ app.post('/api/devices/:id/check', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const device = db.getONUDevice(id);
-    
+
     if (!device) {
       return res.status(404).json({ error: 'Device not found' });
     }
-    
+
     const isOnline = await checkConnectivity(device.host);
     res.json({ online: isOnline });
   } catch (error) {
@@ -354,7 +357,7 @@ app.get('/api/devices/cached-status', requireAuth, (req, res) => {
   try {
     const cache = db.getAllMonitoringCache();
     const result = {};
-    
+
     cache.forEach(item => {
       result[item.deviceId] = {
         status: item.status,
@@ -362,7 +365,7 @@ app.get('/api/devices/cached-status', requireAuth, (req, res) => {
         lastUpdated: item.lastUpdated
       };
     });
-    
+
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -375,13 +378,13 @@ app.post('/api/devices/monitor-all', requireAuth, async (req, res) => {
     const devices = db.getAllONUDevices();
     const maxConcurrent = 10; // Limit concurrent monitoring operations (conservative for SSH)
     const results = {};
-    
+
     // Process devices in batches to avoid overwhelming the server
     for (let i = 0; i < devices.length; i += maxConcurrent) {
       const batch = devices.slice(i, i + maxConcurrent);
-      
+
       console.log(`Processing batch ${Math.floor(i / maxConcurrent) + 1}/${Math.ceil(devices.length / maxConcurrent)} (${batch.length} devices)`);
-      
+
       const batchPromises = batch.map(async (device) => {
         try {
           // Get full device with credentials
@@ -395,9 +398,9 @@ app.post('/api/devices/monitor-all', requireAuth, async (req, res) => {
               }
             };
           }
-          
+
           let result;
-          
+
           // Check device type and call appropriate monitoring function
           if (fullDevice.device_type === 'mikrotik_lhg60g') {
             // MikroTik device monitoring
@@ -405,13 +408,14 @@ app.post('/api/devices/monitor-all', requireAuth, async (req, res) => {
           } else {
             // ONU device monitoring
             const includePortSpeeds = fullDevice.showPortSpeeds === true;
+            const includeOnlineDuration = fullDevice.showOnlineDuration === true && fullDevice.onuType === 'blue';
             result = await monitorONU({
               host: fullDevice.host,
               username: fullDevice.username,
               password: fullDevice.password
-            }, includePortSpeeds);
+            }, includePortSpeeds, includeOnlineDuration);
           }
-          
+
           // Update monitoring cache with the result
           let status, data;
           if (result.success) {
@@ -422,7 +426,7 @@ app.post('/api/devices/monitor-all', requireAuth, async (req, res) => {
             data = null;
           }
           db.updateMonitoringCache(device.id, status, data);
-          
+
           return { deviceId: device.id, result };
         } catch (error) {
           return {
@@ -434,16 +438,16 @@ app.post('/api/devices/monitor-all', requireAuth, async (req, res) => {
           };
         }
       });
-      
+
       // Wait for current batch to complete
       const batchResults = await Promise.all(batchPromises);
-      
+
       // Add batch results to main results object
       batchResults.forEach(({ deviceId, result }) => {
         results[deviceId] = result;
       });
     }
-    
+
     res.json(results);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -499,11 +503,11 @@ app.get('/api/mikrotik/control-config', requireAuth, (req, res) => {
 app.post('/api/mikrotik/control-config', requireAuth, (req, res) => {
   try {
     const { controlIp, username, password, wireguardInterface, lhg60gInterface, basePort } = req.body;
-    
+
     if (!controlIp || !username || !wireguardInterface || !lhg60gInterface) {
       return res.status(400).json({ error: 'All fields are required (password optional when updating)' });
     }
-    
+
     db.saveMikroTikControlConfig(
       controlIp,
       username,
@@ -512,7 +516,7 @@ app.post('/api/mikrotik/control-config', requireAuth, (req, res) => {
       lhg60gInterface,
       basePort || 60001
     );
-    
+
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -523,20 +527,20 @@ app.post('/api/mikrotik/control-config', requireAuth, (req, res) => {
 app.post('/api/mikrotik/control-config/test', requireAuth, async (req, res) => {
   try {
     const { controlIp, username, password } = req.body;
-    
+
     if (!controlIp || !username || !password) {
       return res.status(400).json({ error: 'All credentials required for testing' });
     }
-    
+
     const SSHManager = require('./lib/sshManager');
     const sshManager = new SSHManager();
-    
+
     const result = await sshManager.testConnection({
       control_ip: controlIp,
       control_username: username,
       control_password: password
     });
-    
+
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -547,29 +551,29 @@ app.post('/api/mikrotik/control-config/test', requireAuth, async (req, res) => {
 app.post('/api/mikrotik/devices', requireAuth, async (req, res) => {
   try {
     const { name, lhg60gIP, sshPort, sshUsername, sshPassword, tunnelIP, groupId, config } = req.body;
-    
+
     if (!name || !lhg60gIP || !sshPort || !sshUsername || !sshPassword || !tunnelIP) {
       return res.status(400).json({ error: 'All fields are required' });
     }
-    
+
     // Add groupId to config if provided
     const updatedConfig = config || {};
     if (groupId !== undefined) {
       updatedConfig.groupId = groupId;
     }
-    
+
     // Add device to database
     const deviceId = db.addMikroTikDevice(name, lhg60gIP, sshPort, sshUsername, sshPassword, tunnelIP, updatedConfig);
-    
+
     // Get the full device config for provisioning
     const device = db.getDeviceWithCredentials(deviceId);
     device.name = name; // Ensure name is set
-    
+
     // Provision device on control router
     const provisionResult = await mikrotikProvisioning.provisionDevice(device);
-    
-    res.json({ 
-      success: true, 
+
+    res.json({
+      success: true,
       id: deviceId,
       provisioning: provisionResult
     });
@@ -583,19 +587,19 @@ app.put('/api/mikrotik/devices/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, lhg60gIP, sshPort, sshUsername, sshPassword, tunnelIP, groupId, config } = req.body;
-    
+
     if (!name || !lhg60gIP || !sshPort || !sshUsername || !tunnelIP) {
       return res.status(400).json({ error: 'Name, IP, port, username, and tunnel IP are required' });
     }
-    
+
     // Add groupId to config if provided
     const updatedConfig = config || {};
     if (groupId !== undefined) {
       updatedConfig.groupId = groupId;
     }
-    
+
     const success = db.updateMikroTikDevice(id, name, lhg60gIP, sshPort, sshUsername, sshPassword || null, tunnelIP, updatedConfig);
-    
+
     if (success) {
       res.json({ success: true });
     } else {
@@ -610,28 +614,28 @@ app.put('/api/mikrotik/devices/:id', requireAuth, async (req, res) => {
 app.delete('/api/mikrotik/devices/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     // Get device before deletion
     const device = db.getDeviceWithCredentials(id);
     if (!device) {
       return res.status(404).json({ error: 'Device not found' });
     }
-    
+
     // Get all remaining MikroTik devices (excluding this one)
     const allDevices = db.getAllONUDevices();
     const remainingDevices = allDevices.filter(d => d.id !== parseInt(id));
-    
+
     // Delete from database first
     const deleted = db.deleteONUDevice(id);
-    
+
     if (!deleted) {
       return res.status(404).json({ error: 'Device not found' });
     }
-    
+
     // Attempt cleanup on control router
     const cleanupResult = await mikrotikProvisioning.deprovisionDevice(device, remainingDevices);
-    
-    res.json({ 
+
+    res.json({
       success: true,
       cleanup: cleanupResult
     });
@@ -645,13 +649,13 @@ app.post('/api/mikrotik/devices/:id/monitor', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const device = db.getDeviceWithCredentials(id);
-    
+
     if (!device) {
       return res.status(404).json({ error: 'Device not found' });
     }
-    
+
     const result = await mikrotikMonitor.monitorMikroTik(device);
-    
+
     // Update monitoring cache
     let status, data;
     if (result.success) {
@@ -662,7 +666,7 @@ app.post('/api/mikrotik/devices/:id/monitor', requireAuth, async (req, res) => {
       data = null;
     }
     db.updateMonitoringCache(id, status, data);
-    
+
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -687,11 +691,11 @@ app.get('/api/groups', requireAuth, (req, res) => {
 app.post('/api/groups', requireAuth, (req, res) => {
   try {
     const { name } = req.body;
-    
+
     if (!name) {
       return res.status(400).json({ error: 'Group name is required' });
     }
-    
+
     const group = db.createGroup(name);
     res.json(group);
   } catch (error) {
@@ -708,13 +712,13 @@ app.put('/api/groups/:id', requireAuth, (req, res) => {
   try {
     const { id } = req.params;
     const { name } = req.body;
-    
+
     if (!name) {
       return res.status(400).json({ error: 'Group name is required' });
     }
-    
+
     const success = db.updateGroup(id, name);
-    
+
     if (success) {
       res.json({ success: true });
     } else {
@@ -734,7 +738,7 @@ app.delete('/api/groups/:id', requireAuth, (req, res) => {
   try {
     const { id } = req.params;
     const success = db.deleteGroup(id);
-    
+
     if (success) {
       res.json({ success: true });
     } else {
@@ -749,13 +753,13 @@ app.delete('/api/groups/:id', requireAuth, (req, res) => {
 app.post('/api/devices/:deviceId/group/:groupId', requireAuth, (req, res) => {
   try {
     const { deviceId, groupId } = req.params;
-    
+
     // Check if device exists
     const device = db.getONUDevice(deviceId);
     if (!device) {
       return res.status(404).json({ error: 'Device not found' });
     }
-    
+
     // Check if group exists (null is allowed to remove from group)
     if (groupId !== 'null' && groupId !== 'undefined') {
       const group = db.getGroup(groupId);
@@ -763,10 +767,10 @@ app.post('/api/devices/:deviceId/group/:groupId', requireAuth, (req, res) => {
         return res.status(404).json({ error: 'Group not found' });
       }
     }
-    
+
     const groupIdValue = groupId === 'null' || groupId === 'undefined' ? null : parseInt(groupId);
     const success = db.assignDeviceToGroup(deviceId, groupIdValue);
-    
+
     if (success) {
       res.json({ success: true });
     } else {
@@ -783,18 +787,18 @@ app.post('/api/devices/:deviceId/group/:groupId', requireAuth, (req, res) => {
 app.post('/api/sms-config', requireAuth, (req, res) => {
   try {
     const { apiUrl, phoneNumbers, enabled } = req.body;
-    
+
     if (!apiUrl) {
       return res.status(400).json({ error: 'API URL is required' });
     }
-    
+
     // Validate URL contains placeholders
     if (!apiUrl.includes('{phone}') || !apiUrl.includes('{message}')) {
-      return res.status(400).json({ 
-        error: 'API URL must contain {phone} and {message} placeholders' 
+      return res.status(400).json({
+        error: 'API URL must contain {phone} and {message} placeholders'
       });
     }
-    
+
     db.saveSMSConfig(apiUrl, phoneNumbers, enabled !== false);
     res.json({ success: true });
   } catch (error) {
@@ -819,7 +823,7 @@ app.listen(PORT, () => {
   console.log(`╠═══════════════════════════════════════════════╣`);
   console.log(`║  Background monitoring: ENABLED               ║`);
   console.log(`╚═══════════════════════════════════════════════╝\n`);
-  
+
   // Start background monitoring
   monitoringScheduler.start();
 });

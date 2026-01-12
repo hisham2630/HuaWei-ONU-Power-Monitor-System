@@ -14,12 +14,12 @@ window.addEventListener('DOMContentLoaded', async () => {
     await loadDevices();
     await loadSMSConfig();
     await loadMikroTikControlConfig();
-    
+
     // Setup filter input
     document.getElementById('filterInput').addEventListener('input', renderDevices);
-    
+
     // Setup port speeds configuration toggle
-    document.getElementById('showPortSpeeds').addEventListener('change', function() {
+    document.getElementById('showPortSpeeds').addEventListener('change', function () {
         document.getElementById('portSpeedsConfig').style.display = this.checked ? 'block' : 'none';
     });
 });
@@ -29,12 +29,12 @@ async function checkAuth() {
     try {
         const response = await fetch('/api/auth/status');
         const data = await response.json();
-        
+
         if (!data.authenticated) {
             window.location.href = '/';
             return;
         }
-        
+
         document.getElementById('currentUser').textContent = data.user.username;
     } catch (error) {
         window.location.href = '/';
@@ -87,7 +87,7 @@ function updateGroupsList() {
         list.innerHTML = '<p class="text-muted small mb-0">No groups yet</p>';
         return;
     }
-    
+
     list.innerHTML = groups.map(group => `
         <div class="list-group-item d-flex justify-content-between align-items-center">
             <span>${escapeHtml(group.name)}</span>
@@ -105,14 +105,14 @@ async function addGroup() {
         showToast('Please enter a group name', 'warning');
         return;
     }
-    
+
     try {
         const response = await fetch('/api/groups', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name })
         });
-        
+
         if (response.ok) {
             document.getElementById('newGroupName').value = '';
             await loadGroups();
@@ -132,12 +132,12 @@ async function deleteGroup(groupId) {
     if (!confirm('Are you sure you want to delete this group? Devices in this group will be moved to "No Group".')) {
         return;
     }
-    
+
     try {
         const response = await fetch(`/api/groups/${groupId}`, {
             method: 'DELETE'
         });
-        
+
         if (response.ok) {
             await loadGroups();
             await loadDevices();
@@ -156,7 +156,7 @@ async function loadDevices() {
         const response = await fetch('/api/devices');
         devices = await response.json();
         renderDevices();
-        
+
         // Load cached status instead of triggering immediate refresh
         await loadCachedStatus();
     } catch (error) {
@@ -169,9 +169,9 @@ async function loadCachedStatus() {
     try {
         const response = await fetch('/api/devices/cached-status');
         const cachedData = await response.json();
-        
+
         let mostRecentUpdate = null;
-        
+
         // Update UI with cached data
         for (const [deviceId, cache] of Object.entries(cachedData)) {
             const id = parseInt(deviceId);
@@ -179,7 +179,7 @@ async function loadCachedStatus() {
             if (cache.data) {
                 monitoringData[id] = cache.data;
             }
-            
+
             // Track most recent update time
             if (cache.lastUpdated) {
                 const updateTime = new Date(cache.lastUpdated);
@@ -188,11 +188,11 @@ async function loadCachedStatus() {
                 }
             }
         }
-        
+
         // Check if we have a manual refresh timestamp stored in localStorage
         const storedTimestamp = localStorage.getItem('lastManualRefresh');
         let manualRefreshTime = storedTimestamp ? new Date(storedTimestamp) : null;
-        
+
         // Always use the most recent timestamp (whether from manual refresh or background monitoring)
         if (manualRefreshTime && mostRecentUpdate) {
             lastUpdatedTimestamp = manualRefreshTime > mostRecentUpdate ? manualRefreshTime : mostRecentUpdate;
@@ -205,11 +205,11 @@ async function loadCachedStatus() {
         } else if (mostRecentUpdate) {
             lastUpdatedTimestamp = mostRecentUpdate;
         }
-        
+
         if (lastUpdatedTimestamp) {
             updateLastUpdatedDisplay();
         }
-        
+
         // Re-render to show cached data
         renderDevices();
     } catch (error) {
@@ -222,26 +222,26 @@ function renderDevices() {
     const container = document.getElementById('groupsContainer');
     const emptyState = document.getElementById('emptyState');
     const filter = document.getElementById('filterInput').value.toLowerCase();
-    
+
     // Filter devices
-    const filteredDevices = devices.filter(device => 
-        device.name.toLowerCase().includes(filter) || 
+    const filteredDevices = devices.filter(device =>
+        device.name.toLowerCase().includes(filter) ||
         device.host.toLowerCase().includes(filter)
     );
-    
+
     if (filteredDevices.length === 0) {
         container.innerHTML = '';
         emptyState.style.display = 'block';
         updateStats();
         return;
     }
-    
+
     emptyState.style.display = 'none';
-    
+
     // Group devices
     const grouped = {};
     const ungrouped = [];
-    
+
     filteredDevices.forEach(device => {
         if (device.groupId) {
             if (!grouped[device.groupId]) {
@@ -252,22 +252,22 @@ function renderDevices() {
             ungrouped.push(device);
         }
     });
-    
+
     // Render groups
     let html = '';
-    
+
     // Render ungrouped devices first if any
     if (ungrouped.length > 0) {
         html += renderGroup(null, 'Ungrouped Devices', ungrouped);
     }
-    
+
     // Render grouped devices
     groups.forEach(group => {
         if (grouped[group.id] && grouped[group.id].length > 0) {
             html += renderGroup(group.id, group.name, grouped[group.id]);
         }
     });
-    
+
     container.innerHTML = html;
     updateStats();
 }
@@ -276,33 +276,33 @@ function renderDevices() {
 function renderGroup(groupId, groupName, devicesInGroup) {
     const groupKey = groupId !== null ? groupId.toString() : 'ungrouped';
     const isCollapsed = collapsedGroups.has(groupKey);
-    
+
     // Sort devices numerically by name
     const sortedDevices = [...devicesInGroup].sort((a, b) => {
         // Extract leading number from device names for proper numerical sorting
         // Supports formats like: "1-1406-22", "10-1904-42", "ONU-5", etc.
         const numA = a.name.match(/^(\d+)/);
         const numB = b.name.match(/^(\d+)/);
-        
+
         if (numA && numB) {
             const firstNumA = parseInt(numA[1]);
             const firstNumB = parseInt(numB[1]);
-            
+
             // If leading numbers are different, sort by them
             if (firstNumA !== firstNumB) {
                 return firstNumA - firstNumB;
             }
         }
-        
+
         // Fallback to natural string sorting for same leading number or no match
         return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
     });
-    
+
     // Calculate group stats
     const onlineCount = sortedDevices.filter(d => deviceStatuses[d.id] === 'online').length;
     const offlineCount = sortedDevices.filter(d => deviceStatuses[d.id] === 'offline').length;
     const warningCount = sortedDevices.filter(d => deviceStatuses[d.id] === 'error').length;
-    
+
     return `
         <div class="device-group">
             <div class="group-header" onclick="toggleGroup('${groupKey}')">
@@ -345,7 +345,7 @@ function toggleGroup(groupKey) {
 function renderDeviceCard(device) {
     const status = deviceStatuses[device.id] || 'checking';
     const data = monitoringData[device.id];
-    
+
     // Determine card background class based on status
     let cardClass = 'device-card';
     if (status === 'online') {
@@ -357,12 +357,12 @@ function renderDeviceCard(device) {
     } else {
         cardClass += ' device-card-checking';
     }
-    
-    const iconClass = status === 'online' ? 'status-ok bi-check-circle-fill' : 
-                     status === 'offline' ? 'status-error bi-x-circle-fill' : 
-                     status === 'error' ? 'status-warning bi-exclamation-triangle-fill' : 
-                     'bi-hourglass-split status-checking';
-    
+
+    const iconClass = status === 'online' ? 'status-ok bi-check-circle-fill' :
+        status === 'offline' ? 'status-error bi-x-circle-fill' :
+            status === 'error' ? 'status-warning bi-exclamation-triangle-fill' :
+                'bi-hourglass-split status-checking';
+
     return `
         <div class="${cardClass}" id="card-${device.id}">
             <div class="device-card-header">
@@ -392,104 +392,111 @@ function renderDeviceCard(device) {
 
 // Render PRTG-style sensor badges
 function renderSensorBadges(device, status, data) {
-  let badges = '';
-  
-  if (status === 'checking') {
-    badges = '<span class="sensor-badge badge-blue"><i class="spinner-mini"></i> Checking</span>';
-  } else if (status === 'offline') {
-    badges = '<span class="sensor-badge badge-gray"><i class="bi bi-x-circle"></i> Offline</span>';
-  } else if (status === 'error') {
-    badges = '<span class="sensor-badge badge-red"><i class="bi bi-exclamation-triangle"></i> Error</span>';
-  } else if (status === 'online' && data) {
-    // Check if this is a MikroTik device
-    if (device.device_type === 'mikrotik_lhg60g') {
-      // RSSI badge - only show if enabled
-      if (data.rssi !== undefined && device.showRssi) {
-        const rssiClass = getRSSIBadgeClass(data.rssi);
-        badges += `<span class="sensor-badge ${rssiClass}"><i class="bi bi-reception-4"></i> RSSI: ${data.rssi} dBm</span>`;
-      }
-      
-      // Port Speed badge - only show if enabled
-      if (data.portSpeed !== undefined && data.portSpeed !== null && device.showMikrotikPortSpeed) {
-        const speedClass = getMikrotikPortSpeedBadgeClass(data.portSpeed);
-        let formattedSpeed;
-        
-        // Handle no-link status
-        if (data.portSpeed === 'no-link' || data.portSpeed === 'No Link') {
-          formattedSpeed = 'No Link';
-        } else if (data.portSpeed >= 1000) {
-          formattedSpeed = `${(data.portSpeed / 1000).toFixed(1)}G`;
-        } else {
-          formattedSpeed = `${data.portSpeed}M`;
-        }
-        
-        badges += `<span class="sensor-badge ${speedClass}"><i class="bi bi-diagram-3"></i> ${formattedSpeed}</span>`;
-      }
-    } else {
-      // ONU device badges
-      // Temperature badge - only show if enabled in device preferences
-      if (data.temperature && device.showTemperature) {
-        const tempClass = getTemperatureBadgeClass(data.temperature);
-        const tempValue = extractValue(data.temperature);
-        badges += `<span class="sensor-badge ${tempClass}"><i class="bi bi-thermometer-half"></i> ${tempValue}°C</span>`;
-      }
-      
-      // RX Power badge - always shown as it's the primary metric
-      if (data.currentValue) {
-        const powerClass = getPowerBadgeClass(data.currentValue);
-        const powerValue = extractValue(data.currentValue);
-        badges += `<span class="sensor-badge ${powerClass}"><i class="bi bi-reception-4"></i> RX ${powerValue}</span>`;
-      }
-      
-      // TX Power badge - only show if enabled in device preferences
-      if (data.txPower && device.showTXPower) {
-        const txValue = extractValue(data.txPower);
-        badges += `<span class="sensor-badge badge-yellow"><i class="bi bi-broadcast"></i> TX ${txValue}</span>`;
-      }
-      
-      // UI Type badge - only show if enabled in device preferences
-      if (data.uiType && device.showUIType) {
-        badges += `<span class="sensor-badge badge-gray">${data.uiType === 'blue' ? 'Blue' : 'Red'}</span>`;
-      }
-      
-      // Port speeds badges - only show if enabled in device preferences
-      if (device.showPortSpeeds && data.portSpeeds && device.portSelections && device.portSelections.length > 0) {
-        device.portSelections.forEach(port => {
-          const speed = data.portSpeeds[`eth${port}-speed`];
-          if (speed !== undefined) {
-            let badgeClass = 'badge-blue';
-            let formattedSpeed;
-            
-            // Handle disconnected ports (speed = 0)
-            if (speed === 0) {
-              formattedSpeed = '--';
-              badgeClass = 'port-speed-down'; // Red color for disconnected ports
-            } else {
-              // Format port speed: 1000 -> 1G, 100 -> 100M, 10 -> 10M
-              if (speed === 1000) {
-                formattedSpeed = '1G';
-                badgeClass = 'port-speed-1g'; // Green color for 1Gbps
-              } else if (speed === 100) {
-                formattedSpeed = `${speed}M`;
-                badgeClass = 'port-speed-100m'; // Blue color for 100Mbps
-              } else if (speed === 10) {
-                formattedSpeed = `${speed}M`;
-                badgeClass = 'port-speed-10m'; // Yellow color for 10Mbps
-              } else {
-                formattedSpeed = `${speed}M`;
-              }
+    let badges = '';
+
+    if (status === 'checking') {
+        badges = '<span class="sensor-badge badge-blue"><i class="spinner-mini"></i> Checking</span>';
+    } else if (status === 'offline') {
+        badges = '<span class="sensor-badge badge-gray"><i class="bi bi-x-circle"></i> Offline</span>';
+    } else if (status === 'error') {
+        badges = '<span class="sensor-badge badge-red"><i class="bi bi-exclamation-triangle"></i> Error</span>';
+    } else if (status === 'online' && data) {
+        // Check if this is a MikroTik device
+        if (device.device_type === 'mikrotik_lhg60g') {
+            // RSSI badge - only show if enabled
+            if (data.rssi !== undefined && device.showRssi) {
+                const rssiClass = getRSSIBadgeClass(data.rssi);
+                badges += `<span class="sensor-badge ${rssiClass}"><i class="bi bi-reception-4"></i> RSSI: ${data.rssi} dBm</span>`;
             }
-            
-            badges += `<span class="sensor-badge ${badgeClass}"><i class="bi bi-diagram-3"></i> ETH${port}: ${formattedSpeed}</span>`;
-          }
-        });
-      }
+
+            // Port Speed badge - only show if enabled
+            if (data.portSpeed !== undefined && data.portSpeed !== null && device.showMikrotikPortSpeed) {
+                const speedClass = getMikrotikPortSpeedBadgeClass(data.portSpeed);
+                let formattedSpeed;
+
+                // Handle no-link status
+                if (data.portSpeed === 'no-link' || data.portSpeed === 'No Link') {
+                    formattedSpeed = 'No Link';
+                } else if (data.portSpeed >= 1000) {
+                    formattedSpeed = `${(data.portSpeed / 1000).toFixed(1)}G`;
+                } else {
+                    formattedSpeed = `${data.portSpeed}M`;
+                }
+
+                badges += `<span class="sensor-badge ${speedClass}"><i class="bi bi-diagram-3"></i> ${formattedSpeed}</span>`;
+            }
+        } else {
+            // ONU device badges
+            // Temperature badge - only show if enabled in device preferences
+            if (data.temperature && device.showTemperature) {
+                const tempClass = getTemperatureBadgeClass(data.temperature);
+                const tempValue = extractValue(data.temperature);
+                badges += `<span class="sensor-badge ${tempClass}"><i class="bi bi-thermometer-half"></i> ${tempValue}°C</span>`;
+            }
+
+            // RX Power badge - always shown as it's the primary metric
+            if (data.currentValue) {
+                const powerClass = getPowerBadgeClass(data.currentValue);
+                const powerValue = extractValue(data.currentValue);
+                badges += `<span class="sensor-badge ${powerClass}"><i class="bi bi-reception-4"></i> RX ${powerValue}</span>`;
+            }
+
+            // TX Power badge - only show if enabled in device preferences
+            if (data.txPower && device.showTXPower) {
+                const txValue = extractValue(data.txPower);
+                badges += `<span class="sensor-badge badge-yellow"><i class="bi bi-broadcast"></i> TX ${txValue}</span>`;
+            }
+
+            // UI Type badge - only show if enabled in device preferences
+            if (data.uiType && device.showUIType) {
+                badges += `<span class="sensor-badge badge-gray">${data.uiType === 'blue' ? 'Blue' : 'Red'}</span>`;
+            }
+
+            // Port speeds badges - only show if enabled in device preferences
+            if (device.showPortSpeeds && data.portSpeeds && device.portSelections && device.portSelections.length > 0) {
+                device.portSelections.forEach(port => {
+                    const speed = data.portSpeeds[`eth${port}-speed`];
+                    if (speed !== undefined) {
+                        let badgeClass = 'badge-blue';
+                        let formattedSpeed;
+
+                        // Handle disconnected ports (speed = 0)
+                        if (speed === 0) {
+                            formattedSpeed = '--';
+                            badgeClass = 'port-speed-down'; // Red color for disconnected ports
+                        } else {
+                            // Format port speed: 1000 -> 1G, 100 -> 100M, 10 -> 10M
+                            if (speed === 1000) {
+                                formattedSpeed = '1G';
+                                badgeClass = 'port-speed-1g'; // Green color for 1Gbps
+                            } else if (speed === 100) {
+                                formattedSpeed = `${speed}M`;
+                                badgeClass = 'port-speed-100m'; // Blue color for 100Mbps
+                            } else if (speed === 10) {
+                                formattedSpeed = `${speed}M`;
+                                badgeClass = 'port-speed-10m'; // Yellow color for 10Mbps
+                            } else {
+                                formattedSpeed = `${speed}M`;
+                            }
+                        }
+
+                        badges += `<span class="sensor-badge ${badgeClass}"><i class="bi bi-diagram-3"></i> ETH${port}: ${formattedSpeed}</span>`;
+                    }
+                });
+            }
+
+            // Online Duration badge - only show if enabled in device preferences (Blue UI only)
+            if (device.showOnlineDuration && data.onlineDuration) {
+                const duration = data.onlineDuration;
+                const formattedDuration = duration.formatted || `${duration.days}d ${duration.hours}h`;
+                badges += `<span class="sensor-badge badge-purple"><i class="bi bi-clock-history"></i> Up: ${formattedDuration}</span>`;
+            }
+        }
+    } else {
+        badges = '<span class="sensor-badge badge-gray"><i class="bi bi-question-circle"></i> Unknown</span>';
     }
-  } else {
-    badges = '<span class="sensor-badge badge-gray"><i class="bi bi-question-circle"></i> Unknown</span>';
-  }
-  
-  return badges;
+
+    return badges;
 }
 
 // Extract numeric value from string
@@ -503,7 +510,7 @@ function extractValue(str) {
 function getTemperatureBadgeClass(tempStr) {
     const match = tempStr.match(/([\d.]+)/);
     if (!match) return 'badge-yellow';
-    
+
     const temp = parseFloat(match[1]);
     if (temp > 85) return 'badge-red';
     if (temp > 70) return 'badge-yellow';
@@ -518,10 +525,10 @@ function getPowerBadgeClass(powerStr) {
     if (powerStr.includes('--')) {
         return 'badge-red';
     }
-    
+
     const match = powerStr.match(/-?([\d.]+)/);
     if (!match) return 'badge-yellow';
-    
+
     const power = parseFloat(match[1]);
     if (powerStr.startsWith('-')) {
         if (power > 27) return 'badge-red';
@@ -556,7 +563,7 @@ function updateDeviceCard(deviceId, status, data) {
     if (data) {
         monitoringData[deviceId] = data;
     }
-    
+
     const card = document.getElementById(`card-${deviceId}`);
     if (card) {
         // Update card background class based on status
@@ -570,7 +577,7 @@ function updateDeviceCard(deviceId, status, data) {
         } else {
             card.className += ' device-card-checking';
         }
-        
+
         // Update icon
         const icon = card.querySelector('.device-status-icon');
         if (icon) {
@@ -585,7 +592,7 @@ function updateDeviceCard(deviceId, status, data) {
                 icon.className += 'bi-hourglass-split status-checking';
             }
         }
-        
+
         // Update badges
         const badgesContainer = document.getElementById(`badges-${deviceId}`);
         if (badgesContainer) {
@@ -596,7 +603,7 @@ function updateDeviceCard(deviceId, status, data) {
             }
         }
     }
-    
+
     // Re-render to update group stats
     renderDevices();
 }
@@ -606,7 +613,7 @@ function updateStats() {
     const online = Object.values(deviceStatuses).filter(s => s === 'online').length;
     const offline = Object.values(deviceStatuses).filter(s => s === 'offline').length;
     const warning = Object.values(deviceStatuses).filter(s => s === 'error').length;
-    
+
     document.getElementById('onlineCount').textContent = online;
     document.getElementById('offlineCount').textContent = offline;
     document.getElementById('warningCount').textContent = warning;
@@ -620,10 +627,10 @@ function updateLastUpdatedDisplay() {
         element.textContent = '--';
         return;
     }
-    
+
     const now = new Date();
     const diff = Math.floor((now - lastUpdatedTimestamp) / 1000); // seconds
-    
+
     let displayText;
     if (diff < 60) {
         displayText = `${diff}s ago`;
@@ -637,7 +644,7 @@ function updateLastUpdatedDisplay() {
         const days = Math.floor(diff / 86400);
         displayText = `${days}d ago`;
     }
-    
+
     element.textContent = `Last: ${displayText}`;
     element.title = lastUpdatedTimestamp.toLocaleString();
 }
@@ -652,10 +659,10 @@ setInterval(async () => {
     try {
         const response = await fetch('/api/devices/cached-status');
         const cachedData = await response.json();
-        
+
         let mostRecentUpdate = null;
         let hasNewData = false;
-        
+
         // Check for most recent update in cached data
         for (const [deviceId, cache] of Object.entries(cachedData)) {
             if (cache.lastUpdated) {
@@ -665,12 +672,12 @@ setInterval(async () => {
                 }
             }
         }
-        
+
         // If we found a more recent background update, refresh the UI
         if (mostRecentUpdate && (!lastUpdatedTimestamp || mostRecentUpdate > lastUpdatedTimestamp)) {
             hasNewData = true;
             lastUpdatedTimestamp = mostRecentUpdate;
-            
+
             // Update device statuses and data
             for (const [deviceId, cache] of Object.entries(cachedData)) {
                 const id = parseInt(deviceId);
@@ -679,10 +686,10 @@ setInterval(async () => {
                     monitoringData[id] = cache.data;
                 }
             }
-            
+
             // Clear manual refresh timestamp since background is newer
             localStorage.removeItem('lastManualRefresh');
-            
+
             // Re-render to show updated data
             renderDevices();
             updateLastUpdatedDisplay();
@@ -701,28 +708,28 @@ async function refreshAllStatus() {
 // Refresh all devices status (batch mode - all at once, faster for many devices)
 async function refreshAllStatusBatch() {
     const totalDevices = devices.length;
-    
+
     // Set all devices to checking state immediately
     for (const device of devices) {
         updateDeviceCard(device.id, 'checking', null);
     }
-    
+
     try {
         // Fetch all devices data in a single batch request
         const response = await fetch('/api/devices/monitor-all', {
             method: 'POST'
         });
-        
+
         if (!response.ok) {
             throw new Error('Batch monitoring request failed');
         }
-        
+
         const results = await response.json();
-        
+
         // Update all device cards with the results
         for (const [deviceIdStr, result] of Object.entries(results)) {
             const deviceId = parseInt(deviceIdStr);
-            
+
             if (result.success) {
                 updateDeviceCard(deviceId, 'online', result.data);
             } else {
@@ -741,7 +748,7 @@ async function refreshAllStatusBatch() {
             updateDeviceCard(device.id, 'error', null);
         }
     }
-    
+
     // Update timestamp after all devices are refreshed
     lastUpdatedTimestamp = new Date();
     localStorage.setItem('lastManualRefresh', lastUpdatedTimestamp.toISOString());
@@ -753,22 +760,22 @@ async function refreshAllStatusSequential() {
     const totalDevices = devices.length;
     const maxConcurrent = 10; // Process 3 devices at a time
     let completedCount = 0;
-    
+
     // Set ALL devices to checking state immediately
     for (const device of devices) {
         updateDeviceCard(device.id, 'checking', null);
     }
-    
+
     // Process devices in small batches for better UX
     for (let i = 0; i < devices.length; i += maxConcurrent) {
         const batch = devices.slice(i, i + maxConcurrent);
-        
+
         // Process batch in parallel
         const batchPromises = batch.map(async (device) => {
             try {
                 // Determine API endpoint based on device type
                 let apiUrl, method = 'POST';
-                
+
                 if (device.device_type === 'mikrotik_lhg60g') {
                     // MikroTik device monitoring
                     apiUrl = `/api/mikrotik/devices/${device.id}/monitor`;
@@ -776,11 +783,11 @@ async function refreshAllStatusSequential() {
                     // ONU device monitoring
                     apiUrl = `/api/devices/${device.id}/monitor`;
                 }
-                
+
                 // Fetch device data
                 const response = await fetch(apiUrl, { method });
                 const result = await response.json();
-                
+
                 // Update device card based on result immediately
                 if (result.success) {
                     updateDeviceCard(device.id, 'online', result.data);
@@ -792,21 +799,21 @@ async function refreshAllStatusSequential() {
                         updateDeviceCard(device.id, 'error', null);
                     }
                 }
-                
+
                 completedCount++;
                 console.log(`Completed ${completedCount}/${totalDevices}: ${device.name}`);
-                
+
             } catch (error) {
                 console.error(`Failed to refresh device ${device.id}:`, error);
                 updateDeviceCard(device.id, 'error', null);
                 completedCount++;
             }
         });
-        
+
         // Wait for current batch to complete before starting next batch
         await Promise.all(batchPromises);
     }
-    
+
     // Update timestamp after all devices are refreshed
     lastUpdatedTimestamp = new Date();
     localStorage.setItem('lastManualRefresh', lastUpdatedTimestamp.toISOString());
@@ -816,13 +823,13 @@ async function refreshAllStatusSequential() {
 // Refresh single device
 async function refreshDevice(deviceId, showMessage = true) {
     updateDeviceCard(deviceId, 'checking', null);
-    
+
     const device = devices.find(d => d.id === deviceId);
     if (!device) {
         if (showMessage) showToast('Device not found', 'danger');
         return;
     }
-    
+
     try {
         // Route to appropriate API based on device type
         if (device.device_type === 'mikrotik_lhg60g') {
@@ -831,10 +838,10 @@ async function refreshDevice(deviceId, showMessage = true) {
                 method: 'POST'
             });
             const result = await response.json();
-            
+
             if (result.success) {
                 updateDeviceCard(deviceId, 'online', result.data);
-                
+
                 if (showMessage) {
                     lastUpdatedTimestamp = new Date();
                     localStorage.setItem('lastManualRefresh', lastUpdatedTimestamp.toISOString());
@@ -854,7 +861,7 @@ async function refreshDevice(deviceId, showMessage = true) {
                 method: 'POST'
             });
             const checkData = await checkResponse.json();
-            
+
             if (!checkData.online) {
                 updateDeviceCard(deviceId, 'offline', null);
                 if (showMessage) {
@@ -862,16 +869,16 @@ async function refreshDevice(deviceId, showMessage = true) {
                 }
                 return;
             }
-            
+
             // Get monitoring data
             const response = await fetch(`/api/devices/${deviceId}/monitor`, {
                 method: 'POST'
             });
             const result = await response.json();
-            
+
             if (result.success) {
                 updateDeviceCard(deviceId, 'online', result.data);
-                
+
                 if (showMessage) {
                     lastUpdatedTimestamp = new Date();
                     localStorage.setItem('lastManualRefresh', lastUpdatedTimestamp.toISOString());
@@ -896,22 +903,22 @@ async function refreshDevice(deviceId, showMessage = true) {
 // Refresh all
 async function refreshAll() {
     const totalDevices = devices.length;
-    
+
     if (totalDevices === 0) {
         showToast('No devices to refresh', 'warning');
         return;
     }
-    
+
     if (isRefreshingAll) {
         showToast('Refresh already in progress', 'warning');
         return;
     }
-    
+
     isRefreshingAll = true;
-    
+
     // Show message
     showToast(`Refreshing ${totalDevices} devices (updating as they complete)...`, 'info');
-    
+
     try {
         await refreshAllStatus();
         showToast(`All ${totalDevices} device${totalDevices > 1 ? 's' : ''} refreshed successfully`, 'success');
@@ -929,11 +936,11 @@ function editDevice(deviceId) {
         showToast('Device not found', 'danger');
         return;
     }
-    
+
     document.getElementById('deviceModalTitle').textContent = 'Edit Device';
     document.getElementById('deviceId').value = device.id;
     document.getElementById('deviceName').value = device.name || '';
-    
+
     // Determine device type - map from backend format to form format
     let deviceType = device.device_type || device.onuType || 'blue';
     // Map onu_blue -> blue, onu_red -> red
@@ -943,7 +950,7 @@ function editDevice(deviceId) {
         deviceType = 'red';
     }
     document.getElementById('deviceType').value = deviceType;
-    
+
     if (deviceType === 'mikrotik_lhg60g') {
         // MikroTik-specific fields
         document.getElementById('deviceHost').value = device.host || '';
@@ -953,14 +960,14 @@ function editDevice(deviceId) {
         document.getElementById('mikrotikSshUsername').value = device.mikrotikSshUsername || '';
         document.getElementById('mikrotikSshPassword').value = '';
         document.getElementById('mikrotikTunnelIP').value = device.mikrotikTunnelIp || '';
-        
+
         // MikroTik notification settings
         document.getElementById('notifyRssi').checked = device.notifyRssi === true;
         document.getElementById('rssiThreshold').value = device.rssiThreshold !== undefined ? device.rssiThreshold : -66;
         document.getElementById('notifyMikrotikPortSpeed').checked = device.notifyPortSpeed === true;
         document.getElementById('portSpeedThreshold').value = device.portSpeedThreshold !== undefined ? device.portSpeedThreshold : 1000;
         document.getElementById('notifyMikrotikOffline').checked = device.notifyOffline === true;
-        
+
         // MikroTik display preferences
         document.getElementById('showRssi').checked = device.showRssi === true;
         document.getElementById('showMikrotikPortSpeed').checked = device.showMikrotikPortSpeed === true;
@@ -970,7 +977,7 @@ function editDevice(deviceId) {
         document.getElementById('deviceUsername').value = device.username || '';
         document.getElementById('devicePassword').value = '';
         document.getElementById('devicePassword').required = false;
-        
+
         // ONU notification settings
         document.getElementById('notifyRxPower').checked = device.notifyRxPower === true;
         document.getElementById('rxPowerThreshold').value = device.rxPowerThreshold !== undefined ? device.rxPowerThreshold : -27;
@@ -979,10 +986,10 @@ function editDevice(deviceId) {
         document.getElementById('notifyTempLow').checked = device.notifyTempLow === true;
         document.getElementById('tempLowThreshold').value = device.tempLowThreshold !== undefined ? device.tempLowThreshold : 0;
         document.getElementById('notifyOffline').checked = device.notifyOffline === true;
-        
+
         // Ethernet Port Monitoring settings
         document.getElementById('notifyPortDown').checked = device.notifyPortDown === true;
-        
+
         // Port monitoring configuration
         const portMonitoringConfig = device.portMonitoringConfig || {};
         document.getElementById('port1Speed').value = portMonitoringConfig['1']?.speed || '';
@@ -993,34 +1000,39 @@ function editDevice(deviceId) {
         document.getElementById('port3NotifyDown').checked = portMonitoringConfig['3']?.notifyDown || false;
         document.getElementById('port4Speed').value = portMonitoringConfig['4']?.speed || '';
         document.getElementById('port4NotifyDown').checked = portMonitoringConfig['4']?.notifyDown || false;
-        
+
         // ONU display preferences
         document.getElementById('showTemperature').checked = device.showTemperature === true;
         document.getElementById('showUIType').checked = device.showUIType === true;
         document.getElementById('showTXPower').checked = device.showTXPower === true;
-        
+
         // Port speed preferences
         const showPortSpeeds = device.showPortSpeeds === true;
         document.getElementById('showPortSpeeds').checked = showPortSpeeds;
         document.getElementById('portSpeedsConfig').style.display = showPortSpeeds ? 'block' : 'none';
-        
+
         const portSelections = device.portSelections || [];
         document.getElementById('showPort1').checked = portSelections.includes('1');
         document.getElementById('showPort2').checked = portSelections.includes('2');
         document.getElementById('showPort3').checked = portSelections.includes('3');
         document.getElementById('showPort4').checked = portSelections.includes('4');
+
+        // Online Duration preference (Blue UI only)
+        document.getElementById('showOnlineDuration').checked = device.showOnlineDuration === true;
+        // Show/hide the option based on device type
+        document.getElementById('showOnlineDurationContainer').style.display = device.onuType === 'blue' ? 'block' : 'none';
     }
-    
+
     document.getElementById('deviceGroup').value = device.groupId || '';
-    
+
     // Monitoring settings (common to both types)
     document.getElementById('monitoringInterval').value = device.monitoringInterval !== undefined ? device.monitoringInterval : 900;
     document.getElementById('retryAttempts').value = device.retryAttempts !== undefined ? device.retryAttempts : 3;
     document.getElementById('retryDelay').value = device.retryDelay !== undefined ? device.retryDelay : 3;
-    
+
     // IMPORTANT: Toggle fields AFTER all fields are populated
     toggleDeviceTypeFields();
-    
+
     const modal = new bootstrap.Modal(document.getElementById('addDeviceModal'));
     modal.show();
 }
@@ -1033,7 +1045,7 @@ function resetDeviceForm() {
     document.getElementById('devicePassword').required = true;
     document.getElementById('deviceGroup').value = '';
     document.getElementById('deviceType').value = 'blue';
-    
+
     // Reset to defaults
     document.getElementById('monitoringInterval').value = 900;
     document.getElementById('retryAttempts').value = 3;
@@ -1043,7 +1055,7 @@ function resetDeviceForm() {
     document.getElementById('tempLowThreshold').value = 0;
     document.getElementById('rssiThreshold').value = -66;
     document.getElementById('portSpeedThreshold').value = 1000;
-    
+
     // Reset notification settings to default (unchecked)
     document.getElementById('notifyRxPower').checked = false;
     document.getElementById('notifyTempHigh').checked = false;
@@ -1053,7 +1065,7 @@ function resetDeviceForm() {
     document.getElementById('notifyRssi').checked = false;
     document.getElementById('notifyMikrotikPortSpeed').checked = false;
     document.getElementById('notifyMikrotikOffline').checked = false;
-    
+
     // Reset port monitoring configuration
     document.getElementById('port1Speed').value = '';
     document.getElementById('port1NotifyDown').checked = false;
@@ -1063,7 +1075,7 @@ function resetDeviceForm() {
     document.getElementById('port3NotifyDown').checked = false;
     document.getElementById('port4Speed').value = '';
     document.getElementById('port4NotifyDown').checked = false;
-    
+
     // Reset display preferences to default (unchecked)
     document.getElementById('showTemperature').checked = false;
     document.getElementById('showUIType').checked = false;
@@ -1074,9 +1086,11 @@ function resetDeviceForm() {
     document.getElementById('showPort2').checked = false;
     document.getElementById('showPort3').checked = false;
     document.getElementById('showPort4').checked = false;
+    document.getElementById('showOnlineDuration').checked = false;
+    document.getElementById('showOnlineDurationContainer').style.display = 'block'; // Show by default for new Blue UI devices
     document.getElementById('showRssi').checked = false;
     document.getElementById('showMikrotikPortSpeed').checked = false;
-    
+
     // IMPORTANT: Toggle fields to show ONU by default
     toggleDeviceTypeFields();
 }
@@ -1087,7 +1101,7 @@ async function saveDevice() {
     const deviceType = document.getElementById('deviceType').value;
     const name = document.getElementById('deviceName').value;
     const groupId = document.getElementById('deviceGroup').value || null;
-    
+
     if (deviceType === 'mikrotik_lhg60g') {
         // Save MikroTik device
         await saveMikroTikDevice(deviceId, name, groupId);
@@ -1104,17 +1118,17 @@ async function saveMikroTikDevice(deviceId, name, groupId) {
     const sshUsername = document.getElementById('mikrotikSshUsername').value;
     const sshPassword = document.getElementById('mikrotikSshPassword').value;
     const tunnelIP = document.getElementById('mikrotikTunnelIP').value;
-    
+
     if (!lhg60gIP || !sshPort || !sshUsername || !tunnelIP) {
         showToast('Please fill all MikroTik required fields', 'danger');
         return;
     }
-    
+
     if (!deviceId && !sshPassword) {
         showToast('SSH Password is required for new devices', 'danger');
         return;
     }
-    
+
     // Collect configuration
     const config = {
         monitoringInterval: parseInt(document.getElementById('monitoringInterval').value),
@@ -1122,7 +1136,7 @@ async function saveMikroTikDevice(deviceId, name, groupId) {
         retryDelay: parseInt(document.getElementById('retryDelay').value),
         notifyOffline: document.getElementById('notifyMikrotikOffline').checked
     };
-    
+
     const data = {
         name,
         lhg60gIP,
@@ -1138,11 +1152,11 @@ async function saveMikroTikDevice(deviceId, name, groupId) {
         showRssi: document.getElementById('showRssi').checked,
         showPortSpeed: document.getElementById('showMikrotikPortSpeed').checked
     };
-    
+
     if (sshPassword) {
         data.sshPassword = sshPassword;
     }
-    
+
     try {
         let response;
         if (deviceId) {
@@ -1160,13 +1174,13 @@ async function saveMikroTikDevice(deviceId, name, groupId) {
                 body: JSON.stringify(data)
             });
         }
-        
+
         if (response.ok) {
             const result = await response.json();
             const modal = bootstrap.Modal.getInstance(document.getElementById('addDeviceModal'));
             modal.hide();
             resetDeviceForm();
-            
+
             let message = deviceId ? 'MikroTik device updated successfully' : 'MikroTik device added successfully';
             if (result.provisioning) {
                 message += `. Provisioning: ${result.provisioning.message || 'completed'}`;
@@ -1187,7 +1201,7 @@ async function saveONUDevice(deviceId, name, groupId, onuType) {
     const host = document.getElementById('deviceHost').value;
     const username = document.getElementById('deviceUsername').value;
     const password = document.getElementById('devicePassword').value;
-    
+
     // Collect port monitoring configuration
     const portMonitoringConfig = {
         '1': {
@@ -1207,7 +1221,7 @@ async function saveONUDevice(deviceId, name, groupId, onuType) {
             notifyDown: document.getElementById('port4NotifyDown').checked
         }
     };
-    
+
     // Collect configuration
     const config = {
         monitoringInterval: parseInt(document.getElementById('monitoringInterval').value),
@@ -1227,6 +1241,7 @@ async function saveONUDevice(deviceId, name, groupId, onuType) {
         showUIType: document.getElementById('showUIType').checked,
         showTXPower: document.getElementById('showTXPower').checked,
         showPortSpeeds: document.getElementById('showPortSpeeds').checked,
+        showOnlineDuration: document.getElementById('showOnlineDuration').checked,
         portSelections: [
             document.getElementById('showPort1').checked ? '1' : null,
             document.getElementById('showPort2').checked ? '2' : null,
@@ -1234,12 +1249,12 @@ async function saveONUDevice(deviceId, name, groupId, onuType) {
             document.getElementById('showPort4').checked ? '4' : null
         ].filter(port => port !== null)
     };
-    
+
     const data = { name, host, username, onuType, groupId, config };
     if (password) {
         data.password = password;
     }
-    
+
     try {
         let response;
         if (deviceId) {
@@ -1262,7 +1277,7 @@ async function saveONUDevice(deviceId, name, groupId, onuType) {
                 body: JSON.stringify(data)
             });
         }
-        
+
         if (response.ok) {
             const modal = bootstrap.Modal.getInstance(document.getElementById('addDeviceModal'));
             modal.hide();
@@ -1285,11 +1300,11 @@ async function deleteDevice(deviceId) {
         showToast('Device not found', 'danger');
         return;
     }
-    
+
     if (!confirm('Are you sure you want to delete this device?')) {
         return;
     }
-    
+
     try {
         let response;
         if (device.device_type === 'mikrotik_lhg60g') {
@@ -1303,7 +1318,7 @@ async function deleteDevice(deviceId) {
                 method: 'DELETE'
             });
         }
-        
+
         if (response.ok) {
             const result = await response.json();
             let message = 'Device deleted successfully';
@@ -1325,24 +1340,24 @@ async function changePassword() {
     const currentPassword = document.getElementById('currentPassword').value;
     const newPassword = document.getElementById('newPassword').value;
     const confirmPassword = document.getElementById('confirmPassword').value;
-    
+
     if (newPassword !== confirmPassword) {
         showToast('Passwords do not match', 'danger');
         return;
     }
-    
+
     if (newPassword.length < 6) {
         showToast('Password must be at least 6 characters', 'danger');
         return;
     }
-    
+
     try {
         const response = await fetch('/api/auth/change-password', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ currentPassword, newPassword })
         });
-        
+
         if (response.ok) {
             const modal = bootstrap.Modal.getInstance(document.getElementById('changePasswordModal'));
             modal.hide();
@@ -1369,19 +1384,19 @@ function showToast(message, type = 'info') {
             </div>
         </div>
     `;
-    
+
     let container = document.querySelector('.toast-container');
     if (!container) {
         container = document.createElement('div');
         container.className = 'toast-container';
         document.body.appendChild(container);
     }
-    
+
     container.insertAdjacentHTML('beforeend', toastHtml);
     const toastElement = container.lastElementChild;
     const toast = new bootstrap.Toast(toastElement, { delay: 3000 });
     toast.show();
-    
+
     toastElement.addEventListener('hidden.bs.toast', () => {
         toastElement.remove();
     });
@@ -1414,29 +1429,29 @@ async function saveSMSConfig() {
     const apiUrl = document.getElementById('apiUrl').value.trim();
     const phoneNumbers = document.getElementById('phoneNumbers').value.trim();
     const enabled = document.getElementById('apiEnabled').checked;
-    
+
     if (!apiUrl) {
         showToast('API URL is required', 'danger');
         return;
     }
-    
+
     if (!apiUrl.includes('{phone}') || !apiUrl.includes('{message}')) {
         showToast('API URL must contain {phone} and {message} placeholders', 'danger');
         return;
     }
-    
+
     if (!phoneNumbers && enabled) {
         showToast('Please enter at least one phone number', 'warning');
         return;
     }
-    
+
     try {
         const response = await fetch('/api/sms-config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ apiUrl, phoneNumbers, enabled })
         });
-        
+
         if (response.ok) {
             const modal = bootstrap.Modal.getInstance(document.getElementById('apiConfigModal'));
             modal.hide();
@@ -1453,7 +1468,7 @@ async function saveSMSConfig() {
 // Toggle device type fields
 function toggleDeviceTypeFields() {
     const deviceType = document.getElementById('deviceType').value;
-    
+
     // Toggle field sections
     const mikrotikFields = document.getElementById('mikrotikFields');
     const onuNotifications = document.getElementById('onuNotifications');
@@ -1461,7 +1476,8 @@ function toggleDeviceTypeFields() {
     const onuPortMonitoring = document.getElementById('onuPortMonitoring');
     const onuDisplayPrefs = document.getElementById('onuDisplayPrefs');
     const mikrotikDisplayPrefs = document.getElementById('mikrotikDisplayPrefs');
-    
+    const onlineDurationContainer = document.getElementById('showOnlineDurationContainer');
+
     if (deviceType === 'mikrotik_lhg60g') {
         // Show MikroTik fields, hide ONU fields
         mikrotikFields.style.display = 'block';
@@ -1470,7 +1486,7 @@ function toggleDeviceTypeFields() {
         onuPortMonitoring.style.display = 'none';
         onuDisplayPrefs.style.display = 'none';
         mikrotikDisplayPrefs.style.display = 'block';
-        
+
         // Hide ONU-specific basic fields
         document.getElementById('deviceHost').parentElement.style.display = 'none';
         document.getElementById('deviceUsername').parentElement.style.display = 'none';
@@ -1483,11 +1499,16 @@ function toggleDeviceTypeFields() {
         onuPortMonitoring.style.display = 'block';
         onuDisplayPrefs.style.display = 'block';
         mikrotikDisplayPrefs.style.display = 'none';
-        
+
         // Show ONU-specific basic fields
         document.getElementById('deviceHost').parentElement.style.display = 'block';
         document.getElementById('deviceUsername').parentElement.style.display = 'block';
         document.getElementById('devicePassword').parentElement.style.display = 'block';
+
+        // Show/hide online duration based on ONU type (Blue UI only)
+        if (onlineDurationContainer) {
+            onlineDurationContainer.style.display = deviceType === 'blue' ? 'block' : 'none';
+        }
     }
 }
 
@@ -1518,12 +1539,12 @@ async function saveMikroTikControlConfig() {
     const wireguardInterface = document.getElementById('wireguardInterface').value.trim();
     const lhg60gInterface = document.getElementById('lhg60gInterface').value.trim();
     const basePort = parseInt(document.getElementById('basePort').value);
-    
+
     if (!controlIp || !username || !wireguardInterface || !lhg60gInterface || !basePort) {
         showToast('Please fill all required fields', 'danger');
         return;
     }
-    
+
     const data = {
         controlIp,
         username,
@@ -1531,18 +1552,18 @@ async function saveMikroTikControlConfig() {
         lhg60gInterface,
         basePort
     };
-    
+
     if (password) {
         data.password = password;
     }
-    
+
     try {
         const response = await fetch('/api/mikrotik/control-config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         });
-        
+
         if (response.ok) {
             const modal = bootstrap.Modal.getInstance(document.getElementById('mikrotikControlModal'));
             modal.hide();
@@ -1561,29 +1582,29 @@ async function testControlRouterConnection() {
     const controlIp = document.getElementById('controlRouterIP').value.trim();
     const username = document.getElementById('controlRouterUsername').value.trim();
     const password = document.getElementById('controlRouterPassword').value;
-    
+
     if (!controlIp || !username) {
         showToast('Please enter control router IP and username', 'warning');
         return;
     }
-    
+
     // If password is empty and config exists, we need password from user
     if (!password) {
         showToast('Password is required to test connection', 'warning');
         return;
     }
-    
+
     showToast('Testing connection...', 'info');
-    
+
     try {
         const response = await fetch('/api/mikrotik/control-config/test', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ controlIp, username, password })
         });
-        
+
         const result = await response.json();
-        
+
         if (result.success) {
             showToast('Connection successful!', 'success');
         } else {
