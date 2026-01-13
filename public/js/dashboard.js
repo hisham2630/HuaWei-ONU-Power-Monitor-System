@@ -488,11 +488,17 @@ function renderSensorBadges(device, status, data) {
                 });
             }
 
-            // Online Duration badge - only show if enabled in device preferences (Blue UI only)
-            if (device.showOnlineDuration && data.onlineDuration) {
-                const duration = data.onlineDuration;
-                const formattedDuration = duration.formatted || `${duration.days}d ${duration.hours}h`;
-                badges += `<span class="sensor-badge badge-purple"><i class="bi bi-clock-history"></i> Up: ${formattedDuration}</span>`;
+            // Online Duration badge - show if enabled in device preferences
+            if (device.showOnlineDuration) {
+                if (data.onlineDuration && data.onlineDuration.uptimeSeconds > 0) {
+                    // WAN is connected - show uptime with purple badge
+                    const duration = data.onlineDuration;
+                    const formattedDuration = duration.formatted || `${duration.days}d ${duration.hours}h`;
+                    badges += `<span class="sensor-badge badge-purple"><i class="bi bi-clock-history"></i> Up: ${formattedDuration}</span>`;
+                } else {
+                    // WAN is disconnected - show red badge with exclamation
+                    badges += `<span class="sensor-badge badge-red"><i class="bi bi-exclamation-triangle-fill"></i> WAN Disconnected</span>`;
+                }
             }
         }
     } else {
