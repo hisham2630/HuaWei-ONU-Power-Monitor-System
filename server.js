@@ -283,8 +283,8 @@ app.post('/api/devices/:id/monitor', requireAuth, async (req, res) => {
 
     // Check if port speeds should be included based on device configuration
     const includePortSpeeds = device.showPortSpeeds === true;
-    // Check if online duration should be included (Blue UI only)
-    const includeOnlineDuration = device.showOnlineDuration === true && device.onuType === 'blue';
+    // Check if online duration should be included (both Blue and Red UI support this)
+    const includeOnlineDuration = device.showOnlineDuration === true;
 
     const result = await monitorONU({
       host: device.host,
@@ -408,7 +408,7 @@ app.post('/api/devices/monitor-all', requireAuth, async (req, res) => {
           } else {
             // ONU device monitoring
             const includePortSpeeds = fullDevice.showPortSpeeds === true;
-            const includeOnlineDuration = fullDevice.showOnlineDuration === true && fullDevice.onuType === 'blue';
+            const includeOnlineDuration = fullDevice.showOnlineDuration === true;
             result = await monitorONU({
               host: fullDevice.host,
               username: fullDevice.username,

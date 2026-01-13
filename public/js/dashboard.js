@@ -375,6 +375,9 @@ function renderDeviceCard(device) {
                     <button class="btn btn-warning btn-mini" onclick="editDevice(${device.id})" title="Edit">
                         <i class="bi bi-pencil"></i>
                     </button>
+                    <button class="btn btn-info btn-mini" onclick="copyDevice(${device.id})" title="Copy">
+                        <i class="bi bi-copy"></i>
+                    </button>
                     <button class="btn btn-danger btn-mini" onclick="deleteDevice(${device.id})" title="Delete">
                         <i class="bi bi-trash"></i>
                     </button>
@@ -1017,10 +1020,10 @@ function editDevice(deviceId) {
         document.getElementById('showPort3').checked = portSelections.includes('3');
         document.getElementById('showPort4').checked = portSelections.includes('4');
 
-        // Online Duration preference (Blue UI only)
+        // Online Duration preference (supported by both Blue and Red UI)
         document.getElementById('showOnlineDuration').checked = device.showOnlineDuration === true;
-        // Show/hide the option based on device type
-        document.getElementById('showOnlineDurationContainer').style.display = device.onuType === 'blue' ? 'block' : 'none';
+        // Always show for ONU devices (both Blue and Red UI support this)
+        document.getElementById('showOnlineDurationContainer').style.display = 'block';
     }
 
     document.getElementById('deviceGroup').value = device.groupId || '';
@@ -1035,6 +1038,113 @@ function editDevice(deviceId) {
 
     const modal = new bootstrap.Modal(document.getElementById('addDeviceModal'));
     modal.show();
+}
+
+// Copy device - loads device config without ID to create a new copy
+function copyDevice(deviceId) {
+    const device = devices.find(d => d.id === deviceId);
+    if (!device) {
+        showToast('Device not found', 'danger');
+        return;
+    }
+
+    // Reset form first
+    resetDeviceForm();
+
+    // Set modal title to indicate this is a copy
+    document.getElementById('deviceModalTitle').textContent = 'Copy Device';
+
+    // Clear the device ID so it saves as a new device
+    document.getElementById('deviceId').value = '';
+
+    // Set the name with "(Copy)" suffix
+    document.getElementById('deviceName').value = device.name + ' (Copy)';
+
+    // Password is required for new devices
+    document.getElementById('devicePassword').required = true;
+
+    // Determine the device type
+    if (device.deviceType === 'mikrotik_lhg60g') {
+        document.getElementById('deviceType').value = 'mikrotik_lhg60g';
+        // MikroTik-specific fields
+        document.getElementById('mikrotikLhg60gIP').value = device.mikrotikLhg60gIP || '';
+        document.getElementById('mikrotikSshPort').value = device.mikrotikSshPort || 22;
+        document.getElementById('mikrotikTunnelIP').value = device.mikrotikTunnelIP || '';
+        document.getElementById('mikrotikSshUsername').value = device.mikrotikSshUsername || '';
+        // Password needs to be re-entered for security
+        document.getElementById('mikrotikSshPassword').value = '';
+        // MikroTik notifications
+        document.getElementById('notifyMikrotikRssi').checked = device.notifyRssi === true;
+        document.getElementById('mikrotikRssiThreshold').value = device.rssiThreshold || -65;
+        document.getElementById('notifyMikrotikPortSpeed').checked = device.notifyPortSpeed === true;
+        document.getElementById('mikrotikPortSpeedThreshold').value = device.portSpeedThreshold || 1000;
+        // MikroTik display preferences
+        document.getElementById('showRssi').checked = device.showRssi === true;
+        document.getElementById('showMikrotikPortSpeed').checked = device.showPortSpeed === true;
+    } else {
+        // ONU device
+        document.getElementById('deviceType').value = device.onuType || 'blue';
+        document.getElementById('deviceHost').value = device.host || '';
+        document.getElementById('deviceUsername').value = device.username || '';
+        // Password needs to be re-entered for security
+        document.getElementById('devicePassword').value = '';
+
+        // ONU notification settings
+        document.getElementById('notifyRxPower').checked = device.notifyRxPower === true;
+        document.getElementById('rxPowerThreshold').value = device.rxPowerThreshold || -25;
+        document.getElementById('notifyTempHigh').checked = device.notifyTempHigh === true;
+        document.getElementById('tempHighThreshold').value = device.tempHighThreshold || 70;
+        document.getElementById('notifyTempLow').checked = device.notifyTempLow === true;
+        document.getElementById('tempLowThreshold').value = device.tempLowThreshold || 0;
+        document.getElementById('notifyOffline').checked = device.notifyOffline === true;
+        document.getElementById('notifyPortDown').checked = device.notifyPortDown === true;
+
+        // Port monitoring configuration
+        const portMonitoringConfig = device.portMonitoringConfig || {};
+        document.getElementById('port1Speed').value = portMonitoringConfig['1']?.speed || '';
+        document.getElementById('port1NotifyDown').checked = portMonitoringConfig['1']?.notifyDown || false;
+        document.getElementById('port2Speed').value = portMonitoringConfig['2']?.speed || '';
+        document.getElementById('port2NotifyDown').checked = portMonitoringConfig['2']?.notifyDown || false;
+        document.getElementById('port3Speed').value = portMonitoringConfig['3']?.speed || '';
+        document.getElementById('port3NotifyDown').checked = portMonitoringConfig['3']?.notifyDown || false;
+        document.getElementById('port4Speed').value = portMonitoringConfig['4']?.speed || '';
+        document.getElementById('port4NotifyDown').checked = portMonitoringConfig['4']?.notifyDown || false;
+
+        // ONU display preferences
+        document.getElementById('showTemperature').checked = device.showTemperature === true;
+        document.getElementById('showUIType').checked = device.showUIType === true;
+        document.getElementById('showTXPower').checked = device.showTXPower === true;
+
+        // Port speed preferences
+        const showPortSpeeds = device.showPortSpeeds === true;
+        document.getElementById('showPortSpeeds').checked = showPortSpeeds;
+        document.getElementById('portSpeedsConfig').style.display = showPortSpeeds ? 'block' : 'none';
+
+        const portSelections = device.portSelections || [];
+        document.getElementById('showPort1').checked = portSelections.includes('1');
+        document.getElementById('showPort2').checked = portSelections.includes('2');
+        document.getElementById('showPort3').checked = portSelections.includes('3');
+        document.getElementById('showPort4').checked = portSelections.includes('4');
+
+        // Online Duration preference
+        document.getElementById('showOnlineDuration').checked = device.showOnlineDuration === true;
+        document.getElementById('showOnlineDurationContainer').style.display = 'block';
+    }
+
+    document.getElementById('deviceGroup').value = device.groupId || '';
+
+    // Monitoring settings (common to both types)
+    document.getElementById('monitoringInterval').value = device.monitoringInterval !== undefined ? device.monitoringInterval : 900;
+    document.getElementById('retryAttempts').value = device.retryAttempts !== undefined ? device.retryAttempts : 3;
+    document.getElementById('retryDelay').value = device.retryDelay !== undefined ? device.retryDelay : 3;
+
+    // Toggle fields to show correct device type fields
+    toggleDeviceTypeFields();
+
+    const modal = new bootstrap.Modal(document.getElementById('addDeviceModal'));
+    modal.show();
+
+    showToast('Device configuration copied. Enter password and save as new device.', 'info');
 }
 
 // Reset device form
@@ -1505,9 +1615,9 @@ function toggleDeviceTypeFields() {
         document.getElementById('deviceUsername').parentElement.style.display = 'block';
         document.getElementById('devicePassword').parentElement.style.display = 'block';
 
-        // Show/hide online duration based on ONU type (Blue UI only)
+        // Show online duration for all ONU types (both Blue and Red UI support this)
         if (onlineDurationContainer) {
-            onlineDurationContainer.style.display = deviceType === 'blue' ? 'block' : 'none';
+            onlineDurationContainer.style.display = 'block';
         }
     }
 }
