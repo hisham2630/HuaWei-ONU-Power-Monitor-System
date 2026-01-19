@@ -452,7 +452,9 @@ function renderSensorBadges(device, status, data) {
 
             // UI Type badge - only show if enabled in device preferences
             if (data.uiType && device.showUIType) {
-                badges += `<span class="sensor-badge badge-gray">${data.uiType === 'blue' ? 'Blue' : 'Red'}</span>`;
+                const uiLabel = data.uiType === 'blue' ? 'Blue' :
+                    data.uiType === 'tenda' ? 'Tenda' : 'Red';
+                badges += `<span class="sensor-badge badge-gray">${uiLabel}</span>`;
             }
 
             // Port speeds badges - only show if enabled in device preferences
@@ -952,11 +954,13 @@ function editDevice(deviceId) {
 
     // Determine device type - map from backend format to form format
     let deviceType = device.device_type || device.onuType || 'blue';
-    // Map onu_blue -> blue, onu_red -> red
+    // Map onu_blue -> blue, onu_red -> red, onu_tenda -> tenda
     if (deviceType === 'onu_blue') {
         deviceType = 'blue';
     } else if (deviceType === 'onu_red') {
         deviceType = 'red';
+    } else if (deviceType === 'onu_tenda') {
+        deviceType = 'tenda';
     }
     document.getElementById('deviceType').value = deviceType;
 
@@ -1593,6 +1597,8 @@ function toggleDeviceTypeFields() {
     const onuDisplayPrefs = document.getElementById('onuDisplayPrefs');
     const mikrotikDisplayPrefs = document.getElementById('mikrotikDisplayPrefs');
     const onlineDurationContainer = document.getElementById('showOnlineDurationContainer');
+    const showPortSpeedsCheckbox = document.getElementById('showPortSpeeds');
+    const showPortSpeedsContainer = showPortSpeedsCheckbox ? showPortSpeedsCheckbox.parentElement : null;
 
     if (deviceType === 'mikrotik_lhg60g') {
         // Show MikroTik fields, hide ONU fields
@@ -1607,8 +1613,32 @@ function toggleDeviceTypeFields() {
         document.getElementById('deviceHost').parentElement.style.display = 'none';
         document.getElementById('deviceUsername').parentElement.style.display = 'none';
         document.getElementById('devicePassword').parentElement.style.display = 'none';
+    } else if (deviceType === 'tenda') {
+        // Tenda ONU - show ONU fields but hide port monitoring (not supported)
+        mikrotikFields.style.display = 'none';
+        onuNotifications.style.display = 'block';
+        mikrotikNotifications.style.display = 'none';
+        onuPortMonitoring.style.display = 'none'; // Tenda doesn't support port monitoring
+        onuDisplayPrefs.style.display = 'block';
+        mikrotikDisplayPrefs.style.display = 'none';
+
+        // Show ONU-specific basic fields
+        document.getElementById('deviceHost').parentElement.style.display = 'block';
+        document.getElementById('deviceUsername').parentElement.style.display = 'block';
+        document.getElementById('devicePassword').parentElement.style.display = 'block';
+
+        // Hide port speeds option in display preferences for Tenda
+        if (showPortSpeedsContainer) {
+            showPortSpeedsContainer.style.display = 'none';
+        }
+        document.getElementById('portSpeedsConfig').style.display = 'none';
+
+        // Show online duration for Tenda
+        if (onlineDurationContainer) {
+            onlineDurationContainer.style.display = 'block';
+        }
     } else {
-        // Show ONU fields, hide MikroTik fields
+        // Huawei ONU (Blue/Red UI) - show all ONU fields
         mikrotikFields.style.display = 'none';
         onuNotifications.style.display = 'block';
         mikrotikNotifications.style.display = 'none';
@@ -1620,6 +1650,11 @@ function toggleDeviceTypeFields() {
         document.getElementById('deviceHost').parentElement.style.display = 'block';
         document.getElementById('deviceUsername').parentElement.style.display = 'block';
         document.getElementById('devicePassword').parentElement.style.display = 'block';
+
+        // Show port speeds option for Huawei
+        if (showPortSpeedsContainer) {
+            showPortSpeedsContainer.style.display = 'block';
+        }
 
         // Show online duration for all ONU types (both Blue and Red UI support this)
         if (onlineDurationContainer) {

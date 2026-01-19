@@ -6,7 +6,7 @@ const path = require('path');
 require('dotenv').config();
 
 const DatabaseManager = require('./lib/database');
-const { monitorONU, checkConnectivity, getEthernetPortSpeeds } = require('./lib/onuMonitor');
+const { monitorONU, checkConnectivity, getEthernetPortSpeeds, monitorTendaONU } = require('./lib/onuMonitor');
 const MikroTikMonitor = require('./lib/mikrotikMonitor');
 const MikroTikProvisioning = require('./lib/mikrotikProvisioning');
 const NotificationService = require('./lib/notificationService');
@@ -206,7 +206,7 @@ app.post('/api/devices', requireAuth, (req, res) => {
       return res.status(400).json({ error: 'All fields are required' });
     }
 
-    if (!['blue', 'red'].includes(onuType)) {
+    if (!['blue', 'red', 'tenda'].includes(onuType)) {
       return res.status(400).json({ error: 'Invalid ONU type' });
     }
 
@@ -233,7 +233,7 @@ app.put('/api/devices/:id', requireAuth, (req, res) => {
       return res.status(400).json({ error: 'Name, host, username, and ONU type are required' });
     }
 
-    if (!['blue', 'red'].includes(onuType)) {
+    if (!['blue', 'red', 'tenda'].includes(onuType)) {
       return res.status(400).json({ error: 'Invalid ONU type' });
     }
 
@@ -281,16 +281,27 @@ app.post('/api/devices/:id/monitor', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Device not found' });
     }
 
-    // Check if port speeds should be included based on device configuration
-    const includePortSpeeds = device.showPortSpeeds === true;
-    // Check if online duration should be included (both Blue and Red UI support this)
-    const includeOnlineDuration = device.showOnlineDuration === true;
+    let result;
 
-    const result = await monitorONU({
-      host: device.host,
-      username: device.username,
-      password: device.password
-    }, includePortSpeeds, includeOnlineDuration);
+    // Check device type and use appropriate monitoring function
+    if (device.onuType === 'tenda') {
+      // Tenda ONU - doesn't support port speeds
+      const includeOnlineDuration = device.showOnlineDuration === true;
+      result = await monitorTendaONU({
+        host: device.host,
+        username: device.username,
+        password: device.password
+      }, includeOnlineDuration);
+    } else {
+      // Huawei ONU (blue/red)
+      const includePortSpeeds = device.showPortSpeeds === true;
+      const includeOnlineDuration = device.showOnlineDuration === true;
+      result = await monitorONU({
+        host: device.host,
+        username: device.username,
+        password: device.password
+      }, includePortSpeeds, includeOnlineDuration);
+    }
 
     // Update monitoring cache with the fresh result
     let status, data;
@@ -405,8 +416,16 @@ app.post('/api/devices/monitor-all', requireAuth, async (req, res) => {
           if (fullDevice.device_type === 'mikrotik_lhg60g') {
             // MikroTik device monitoring
             result = await mikrotikMonitor.monitorMikroTik(fullDevice);
+          } else if (fullDevice.onuType === 'tenda') {
+            // Tenda ONU monitoring - doesn't support port speeds
+            const includeOnlineDuration = fullDevice.showOnlineDuration === true;
+            result = await monitorTendaONU({
+              host: fullDevice.host,
+              username: fullDevice.username,
+              password: fullDevice.password
+            }, includeOnlineDuration);
           } else {
-            // ONU device monitoring
+            // Huawei ONU device monitoring (blue/red)
             const includePortSpeeds = fullDevice.showPortSpeeds === true;
             const includeOnlineDuration = fullDevice.showOnlineDuration === true;
             result = await monitorONU({
