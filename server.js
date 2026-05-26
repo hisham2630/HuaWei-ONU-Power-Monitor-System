@@ -248,6 +248,9 @@ app.put('/api/devices/:id', requireAuth, (req, res) => {
     const success = db.updateONUDevice(id, name, host, username, password || null, onuType, updatedConfig);
 
     if (success) {
+      monitoringScheduler.triggerMonitoring(parseInt(id, 10)).catch((err) => {
+        console.warn(`Failed to refresh monitoring cache after updating device ${id}:`, err.message);
+      });
       res.json({ success: true });
     } else {
       res.status(404).json({ error: 'Device not found' });

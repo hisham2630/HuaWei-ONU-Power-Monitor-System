@@ -35,6 +35,17 @@ window.addEventListener('DOMContentLoaded', async () => {
     // Setup port speeds configuration toggle
     document.getElementById('showPortSpeeds').addEventListener('change', function () {
         document.getElementById('portSpeedsConfig').style.display = this.checked ? 'block' : 'none';
+        if (this.checked) {
+            const anyPortSelected =
+                document.getElementById('showPort1').checked ||
+                document.getElementById('showPort2').checked ||
+                document.getElementById('showPort3').checked ||
+                document.getElementById('showPort4').checked;
+            if (!anyPortSelected) {
+                document.getElementById('showPort1').checked = true;
+                document.getElementById('showPort2').checked = true;
+            }
+        }
     });
 
     const rebootConfirmEl = document.getElementById('rebootConfirmModal');
@@ -1160,8 +1171,17 @@ function renderSensorBadges(device, status, data) {
             }
 
             // Port speeds badges - only show if enabled in device preferences
-            if (device.showPortSpeeds && data.portSpeeds && device.portSelections && device.portSelections.length > 0) {
-                device.portSelections.forEach(port => {
+            if (device.showPortSpeeds && data.portSpeeds) {
+                const selectedPorts = (device.portSelections && device.portSelections.length > 0)
+                    ? device.portSelections
+                    : Object.keys(data.portSpeeds)
+                        .map((key) => {
+                            const match = key.match(/^eth(\d+)-speed$/);
+                            return match ? match[1] : null;
+                        })
+                        .filter(Boolean);
+
+                selectedPorts.forEach(port => {
                     const speed = data.portSpeeds[`eth${port}-speed`];
                     if (speed !== undefined) {
                         let badgeClass = 'badge-blue';
@@ -2070,12 +2090,18 @@ async function saveONUDevice(deviceId, name, groupId, onuType) {
         showTXPower: document.getElementById('showTXPower').checked,
         showPortSpeeds: document.getElementById('showPortSpeeds').checked,
         showOnlineDuration: document.getElementById('showOnlineDuration').checked,
-        portSelections: [
-            document.getElementById('showPort1').checked ? '1' : null,
-            document.getElementById('showPort2').checked ? '2' : null,
-            document.getElementById('showPort3').checked ? '3' : null,
-            document.getElementById('showPort4').checked ? '4' : null
-        ].filter(port => port !== null)
+        portSelections: (() => {
+            const selections = [
+                document.getElementById('showPort1').checked ? '1' : null,
+                document.getElementById('showPort2').checked ? '2' : null,
+                document.getElementById('showPort3').checked ? '3' : null,
+                document.getElementById('showPort4').checked ? '4' : null
+            ].filter(port => port !== null);
+            if (document.getElementById('showPortSpeeds').checked && selections.length === 0) {
+                return ['1', '2'];
+            }
+            return selections;
+        })()
     };
 
     const data = { name, host, username, onuType, groupId, config };
