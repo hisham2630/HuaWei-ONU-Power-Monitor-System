@@ -6,11 +6,12 @@ const path = require('path');
 require('dotenv').config();
 
 const DatabaseManager = require('./lib/database');
-const { monitorONU, checkConnectivity, getEthernetPortSpeeds, monitorTendaONU } = require('./lib/onuMonitor');
+const { monitorONU, checkConnectivity, getEthernetPortSpeeds, monitorTendaONU, rebootONU } = require('./lib/onuMonitor');
 const MikroTikMonitor = require('./lib/mikrotikMonitor');
 const MikroTikProvisioning = require('./lib/mikrotikProvisioning');
 const NotificationService = require('./lib/notificationService');
 const MonitoringScheduler = require('./lib/monitoringScheduler');
+const RebootScheduler = require('./lib/rebootScheduler');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -30,6 +31,7 @@ const notificationService = new NotificationService(db);
 
 // Initialize monitoring scheduler
 const monitoringScheduler = new MonitoringScheduler(db, notificationService);
+const rebootScheduler = new RebootScheduler(db, notificationService);
 
 // Middleware
 app.use(bodyParser.json());
@@ -363,6 +365,14 @@ app.post('/api/devices/:id/check', requireAuth, async (req, res) => {
   }
 });
 
+// SQLite CURRENT_TIMESTAMP is UTC but stored without a timezone suffix
+function toUtcIsoTimestamp(sqliteDatetime) {
+  if (!sqliteDatetime) return null;
+  if (typeof sqliteDatetime !== 'string') return sqliteDatetime;
+  if (sqliteDatetime.includes('T')) return sqliteDatetime;
+  return sqliteDatetime.trim().replace(' ', 'T') + 'Z';
+}
+
 // API: Get cached monitoring data for all devices
 app.get('/api/devices/cached-status', requireAuth, (req, res) => {
   try {
@@ -373,7 +383,7 @@ app.get('/api/devices/cached-status', requireAuth, (req, res) => {
       result[item.deviceId] = {
         status: item.status,
         data: item.data,
-        lastUpdated: item.lastUpdated
+        lastUpdated: toUtcIsoTimestamp(item.lastUpdated)
       };
     });
 
@@ -802,6 +812,141 @@ app.post('/api/devices/:deviceId/group/:groupId', requireAuth, (req, res) => {
 
 // ==================== END GROUP MANAGEMENT API ====================
 
+// ==================== REBOOT SCHEDULER API ====================
+
+function parseDaysMask(daysMask) {
+  const value = parseInt(daysMask, 10);
+  if (Number.isNaN(value) || value < 1 || value > 127) {
+    return null;
+  }
+  return value;
+}
+
+function parseTimeLocal(timeLocal) {
+  if (!timeLocal || !/^([01]\d|2[0-3]):[0-5]\d$/.test(timeLocal)) {
+    return null;
+  }
+  return timeLocal;
+}
+
+function assertRebootCapableOnuDevice(device) {
+  if (!device) return 'Device not found';
+  if (!['blue', 'red'].includes(device.onuType)) {
+    return 'Reboot schedules are only supported for Blue and Red UI Huawei ONU devices';
+  }
+  return null;
+}
+
+app.get('/api/reboot-schedules', requireAuth, (req, res) => {
+  try {
+    const schedules = db.getAllRebootSchedules();
+    res.json(schedules);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/reboot-schedules/:deviceId', requireAuth, (req, res) => {
+  try {
+    const schedule = db.getRebootSchedule(req.params.deviceId);
+    if (!schedule) {
+      return res.status(404).json({ error: 'Schedule not found' });
+    }
+    res.json(schedule);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/reboot-schedules/:deviceId', requireAuth, (req, res) => {
+  try {
+    const deviceId = parseInt(req.params.deviceId, 10);
+    const device = db.getONUDevice(deviceId);
+    const deviceError = assertRebootCapableOnuDevice(device);
+    if (deviceError) {
+      return res.status(400).json({ error: deviceError });
+    }
+
+    const daysMask = parseDaysMask(req.body.daysMask);
+    const timeLocal = parseTimeLocal(req.body.timeLocal);
+    if (daysMask === null) {
+      return res.status(400).json({ error: 'Select at least one weekday' });
+    }
+    if (!timeLocal) {
+      return res.status(400).json({ error: 'Invalid time format (use HH:MM)' });
+    }
+
+    const schedule = db.upsertRebootSchedule(deviceId, {
+      enabled: req.body.enabled !== false,
+      daysMask,
+      timeLocal,
+      notifyOnFailure: req.body.notifyOnFailure !== false
+    });
+
+    rebootScheduler.reloadSchedules();
+    res.json(schedule);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/reboot-schedules/:deviceId', requireAuth, (req, res) => {
+  try {
+    const success = db.deleteRebootSchedule(req.params.deviceId);
+    if (!success) {
+      return res.status(404).json({ error: 'Schedule not found' });
+    }
+    rebootScheduler.reloadSchedules();
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/reboot-schedules/:deviceId/logs', requireAuth, (req, res) => {
+  try {
+    const logs = db.getRebootLogs(req.params.deviceId, 50);
+    res.json(logs);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/devices/:deviceId/reboot', requireAuth, async (req, res) => {
+  try {
+    const deviceId = parseInt(req.params.deviceId, 10);
+    const device = db.getDeviceWithCredentials(deviceId);
+    if (!device) {
+      return res.status(404).json({ error: 'Device not found' });
+    }
+
+    const deviceError = assertRebootCapableOnuDevice(device);
+    if (deviceError) {
+      return res.status(400).json({ error: deviceError });
+    }
+
+    const reachable = await checkConnectivity(device.host);
+    if (!reachable) {
+      return res.status(503).json({ error: 'Device unreachable' });
+    }
+
+    const scheduledFor = `manual ${new Date().toISOString()}`;
+    const result = await rebootONU(device.host, device.username, device.password, device.onuType);
+
+    if (result.success) {
+      db.addRebootLog(deviceId, scheduledFor, 'success', result.message);
+      return res.json({ success: true, message: result.message });
+    }
+
+    db.addRebootLog(deviceId, scheduledFor, 'failed', result.message);
+    return res.status(500).json({ error: result.message || 'Reboot failed' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== END REBOOT SCHEDULER API ====================
+
 // API: Save SMS configuration
 app.post('/api/sms-config', requireAuth, (req, res) => {
   try {
@@ -841,16 +986,19 @@ app.listen(PORT, () => {
   console.log(`║  CHANGE DEFAULT PASSWORD IMMEDIATELY!         ║`);
   console.log(`╠═══════════════════════════════════════════════╣`);
   console.log(`║  Background monitoring: ENABLED               ║`);
+  console.log(`║  Reboot scheduler: ENABLED                    ║`);
   console.log(`╚═══════════════════════════════════════════════╝\n`);
 
   // Start background monitoring
   monitoringScheduler.start();
+  rebootScheduler.start();
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, stopping monitoring and closing database...');
   monitoringScheduler.stop();
+  rebootScheduler.stop();
   db.close();
   process.exit(0);
 });
@@ -858,6 +1006,7 @@ process.on('SIGTERM', () => {
 process.on('SIGINT', () => {
   console.log('\nSIGINT received, stopping monitoring and closing database...');
   monitoringScheduler.stop();
+  rebootScheduler.stop();
   db.close();
   process.exit(0);
 });

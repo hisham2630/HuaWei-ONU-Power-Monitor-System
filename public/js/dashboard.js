@@ -1,17 +1,31 @@
 // Dashboard JavaScript - Grouped PRTG-style Layout
 let devices = [];
 let groups = [];
+let rebootSchedules = {};
 let monitoringData = {};
 let deviceStatuses = {};
 let collapsedGroups = new Set();
 let lastUpdatedTimestamp = null;
 let isRefreshingAll = false; // Flag to track if refresh all is in progress
 
+// SQLite stores UTC as "YYYY-MM-DD HH:MM:SS" without Z; parse as UTC
+function parseCacheTimestamp(value) {
+    if (!value) return null;
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+        return date;
+    }
+    const normalized = String(value).trim().replace(' ', 'T');
+    const utc = new Date(normalized.endsWith('Z') ? normalized : `${normalized}Z`);
+    return Number.isNaN(utc.getTime()) ? null : utc;
+}
+
 // Check auth on load
 window.addEventListener('DOMContentLoaded', async () => {
     await checkAuth();
     await loadGroups();
     await loadDevices();
+    await loadRebootSchedules();
     await loadSMSConfig();
     await loadMikroTikControlConfig();
 
@@ -22,6 +36,11 @@ window.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('showPortSpeeds').addEventListener('change', function () {
         document.getElementById('portSpeedsConfig').style.display = this.checked ? 'block' : 'none';
     });
+
+    const rebootConfirmEl = document.getElementById('rebootConfirmModal');
+    if (rebootConfirmEl) {
+        rebootConfirmEl.addEventListener('hidden.bs.modal', onRebootConfirmModalHidden);
+    }
 });
 
 // Check authentication
@@ -155,6 +174,7 @@ async function loadDevices() {
     try {
         const response = await fetch('/api/devices');
         devices = await response.json();
+        await loadRebootSchedules();
         renderDevices();
 
         // Load cached status instead of triggering immediate refresh
@@ -164,54 +184,730 @@ async function loadDevices() {
     }
 }
 
+// Load reboot schedules
+async function loadRebootSchedules() {
+    try {
+        const response = await fetch('/api/reboot-schedules');
+        if (!response.ok) {
+            rebootSchedules = {};
+            return;
+        }
+        const list = await response.json();
+        rebootSchedules = {};
+        list.forEach((s) => {
+            rebootSchedules[s.deviceId] = s;
+        });
+    } catch (error) {
+        console.error('Failed to load reboot schedules:', error);
+        rebootSchedules = {};
+    }
+}
+
+const REBOOT_DAY_BITS = [1, 2, 4, 8, 16, 32, 64];
+const REBOOT_DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function isRebootCapableDevice(device) {
+    return (
+        device.onuType === 'blue' ||
+        device.onuType === 'red' ||
+        device.device_type === 'onu_blue' ||
+        device.device_type === 'onu_red'
+    );
+}
+
+function getRebootCapableOnuDevices() {
+    return devices.filter(isRebootCapableDevice);
+}
+
+let pendingRebootDeviceId = null;
+let rebootConfirmModal = null;
+
+function getRebootConfirmModal() {
+    if (!rebootConfirmModal) {
+        rebootConfirmModal = new bootstrap.Modal(document.getElementById('rebootConfirmModal'));
+    }
+    return rebootConfirmModal;
+}
+
+function setRebootConfirmLoading(loading) {
+    const idleEl = document.getElementById('rebootConfirmIdle');
+    const loadingEl = document.getElementById('rebootConfirmLoading');
+    const cancelBtn = document.getElementById('rebootConfirmCancelBtn');
+    const confirmBtn = document.getElementById('rebootConfirmBtn');
+    const closeBtn = document.querySelector('#rebootConfirmModal .btn-close');
+
+    idleEl.style.display = loading ? 'none' : '';
+    loadingEl.style.display = loading ? 'block' : 'none';
+    cancelBtn.disabled = loading;
+    if (closeBtn) closeBtn.disabled = loading;
+
+    if (loading) {
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML =
+            '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Rebooting…';
+        const modal = bootstrap.Modal.getInstance(document.getElementById('rebootConfirmModal'));
+        if (modal) {
+            modal._config.backdrop = 'static';
+            modal._config.keyboard = false;
+        }
+    } else {
+        confirmBtn.disabled = false;
+        confirmBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Reboot now';
+        const modal = bootstrap.Modal.getInstance(document.getElementById('rebootConfirmModal'));
+        if (modal) {
+            modal._config.backdrop = true;
+            modal._config.keyboard = true;
+        }
+    }
+}
+
+function openRebootConfirmModal(deviceId) {
+    const device = devices.find((d) => d.id === deviceId);
+    if (!device || !isRebootCapableDevice(device)) {
+        showToast('Reboot is only supported for Blue and Red UI Huawei ONU devices', 'warning');
+        return;
+    }
+
+    pendingRebootDeviceId = deviceId;
+    document.getElementById('rebootConfirmDeviceName').textContent = device.name;
+    document.getElementById('rebootConfirmDeviceHost').textContent = device.host;
+    document.getElementById('rebootConfirmLoadingName').textContent = device.name;
+    setRebootConfirmLoading(false);
+    getRebootConfirmModal().show();
+}
+
+async function confirmRebootDevice() {
+    if (!pendingRebootDeviceId) return;
+
+    const deviceId = pendingRebootDeviceId;
+    setRebootConfirmLoading(true);
+
+    try {
+        const response = await fetch(`/api/devices/${deviceId}/reboot`, { method: 'POST' });
+        const data = await response.json().catch(() => ({}));
+
+        if (response.ok) {
+            getRebootConfirmModal().hide();
+            pendingRebootDeviceId = null;
+            showToast(data.message || 'Reboot command sent successfully', 'success');
+            setTimeout(() => refreshDevice(deviceId, true), 3000);
+        } else {
+            showToast(data.error || 'Reboot failed', 'danger');
+            setRebootConfirmLoading(false);
+        }
+    } catch (error) {
+        showToast('Network error while rebooting device', 'danger');
+        setRebootConfirmLoading(false);
+    }
+}
+
+function onRebootConfirmModalHidden() {
+    pendingRebootDeviceId = null;
+    setRebootConfirmLoading(false);
+}
+
+function buildRebootDaysMask() {
+    let mask = 0;
+    document.querySelectorAll('.reboot-day:checked').forEach((el) => {
+        mask |= parseInt(el.value, 10);
+    });
+    return mask;
+}
+
+function setRebootDaysMask(mask) {
+    document.querySelectorAll('.reboot-day').forEach((el) => {
+        const bit = parseInt(el.value, 10);
+        el.checked = (mask & bit) !== 0;
+    });
+}
+
+function formatRebootDaysAndTime(schedule) {
+    if (!schedule) return '';
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+        if (schedule.daysMask & REBOOT_DAY_BITS[i]) {
+            days.push(REBOOT_DAY_NAMES[i]);
+        }
+    }
+    return `${days.join(', ')} at ${schedule.timeLocal}`;
+}
+
+function formatRebootScheduleLabel(schedule) {
+    if (!schedule) return '';
+    const when = formatRebootDaysAndTime(schedule);
+    if (!schedule.enabled) {
+        return `Reboot paused: ${when}`;
+    }
+    return `Reboot ${when}`;
+}
+
+function formatRebootLastRun(schedule) {
+    if (!schedule || !schedule.lastRunAt) {
+        return '<span class="text-muted">Never</span>';
+    }
+    const status = schedule.lastRunStatus || 'unknown';
+    const badgeClass =
+        status === 'success' ? 'bg-success' : status === 'skipped' ? 'bg-warning text-dark' : 'bg-danger';
+    const msg = schedule.lastRunMessage ? ` — ${escapeHtml(schedule.lastRunMessage)}` : '';
+    return `<span class="text-nowrap">${escapeHtml(schedule.lastRunAt)}</span> <span class="badge ${badgeClass}">${escapeHtml(status)}</span>${msg}`;
+}
+
+function rebootLogStatusBadge(status) {
+    const badgeClass =
+        status === 'success' ? 'bg-success' : status === 'skipped' ? 'bg-warning text-dark' : 'bg-danger';
+    return `<span class="badge ${badgeClass}">${escapeHtml(status)}</span>`;
+}
+
+const REBOOT_UNGROUPED_KEY = 'none';
+
+function getRebootGroupKeyForDevice(device) {
+    if (!device) return '';
+    return device.groupId ? String(device.groupId) : REBOOT_UNGROUPED_KEY;
+}
+
+function getRebootCapableOnuInGroup(groupKey) {
+    const rebootDevices = getRebootCapableOnuDevices();
+    if (!groupKey) return [];
+    if (groupKey === REBOOT_UNGROUPED_KEY) {
+        return rebootDevices.filter((d) => d.groupId == null || d.groupId === '');
+    }
+    const groupId = parseInt(groupKey, 10);
+    return rebootDevices.filter((d) => Number(d.groupId) === groupId);
+}
+
+function setRebootDeviceSelectVisible(visible) {
+    const wrap = document.getElementById('rebootDeviceSelectWrap');
+    if (wrap) {
+        wrap.style.display = visible ? 'block' : 'none';
+    }
+}
+
+function rebootOnuCountLabel(count) {
+    if (count === 0) return ' — no Blue/Red ONU';
+    return ` — ${count} ONU${count !== 1 ? 's' : ''}`;
+}
+
+function populateRebootGroupSelect(selectedGroupKey) {
+    const select = document.getElementById('rebootGroupSelect');
+    if (!select) return;
+
+    let html = '<option value="">Select a group...</option>';
+
+    if (groups.length === 0) {
+        html += '<option value="" disabled>No groups — create one via Manage Groups</option>';
+    } else {
+        groups.forEach((group) => {
+            const count = getRebootCapableOnuInGroup(String(group.id)).length;
+            const selected = selectedGroupKey === String(group.id) ? ' selected' : '';
+            html += `<option value="${group.id}"${selected}>${escapeHtml(group.name)}${rebootOnuCountLabel(count)}</option>`;
+        });
+    }
+
+    const ungroupedCount = getRebootCapableOnuInGroup(REBOOT_UNGROUPED_KEY).length;
+    if (ungroupedCount > 0) {
+        const selected = selectedGroupKey === REBOOT_UNGROUPED_KEY ? ' selected' : '';
+        html += `<option value="${REBOOT_UNGROUPED_KEY}"${selected}>No Group${rebootOnuCountLabel(ungroupedCount)}</option>`;
+    }
+
+    select.innerHTML = html;
+    if (selectedGroupKey) {
+        select.value = selectedGroupKey;
+    }
+}
+
+function populateRebootDeviceSelectForGroup(groupKey, selectedDeviceId) {
+    const select = document.getElementById('rebootDeviceSelect');
+    if (!select) return;
+
+    const list = getRebootCapableOnuInGroup(groupKey).sort((a, b) =>
+        (a.name || '').localeCompare(b.name || '')
+    );
+
+    let html;
+    if (list.length === 0) {
+        html =
+            '<option value="">No Blue/Red ONU in this group — assign a device via Edit Device</option>';
+    } else {
+        html = '<option value="">Select an ONU...</option>';
+        list.forEach((d) => {
+            const typeLabel = d.onuType === 'red' ? 'Red' : 'Blue';
+            html += `<option value="${d.id}">${escapeHtml(d.name)} [${typeLabel}] (${escapeHtml(d.host)})</option>`;
+        });
+    }
+
+    select.innerHTML = html;
+    if (selectedDeviceId) {
+        select.value = String(selectedDeviceId);
+    }
+}
+
+function setRebootDevicePicker(groupKey, deviceId) {
+    populateRebootGroupSelect(groupKey || '');
+    if (groupKey) {
+        setRebootDeviceSelectVisible(true);
+        populateRebootDeviceSelectForGroup(groupKey, deviceId || null);
+    } else {
+        setRebootDeviceSelectVisible(false);
+        const deviceSelect = document.getElementById('rebootDeviceSelect');
+        if (deviceSelect) {
+            deviceSelect.innerHTML = '<option value="">Select an ONU...</option>';
+        }
+    }
+}
+
+function onRebootGroupSelected() {
+    const groupKey = document.getElementById('rebootGroupSelect').value;
+    if (!groupKey) {
+        setRebootDeviceSelectVisible(false);
+        document.getElementById('rebootDeviceSelect').innerHTML = '<option value="">Select an ONU...</option>';
+        setRebootDaysMask(0);
+        document.getElementById('rebootTimeLocal').value = '';
+        updateRebootLastRunInfo(null);
+        loadRebootLogs(null);
+        return;
+    }
+
+    setRebootDeviceSelectVisible(true);
+    populateRebootDeviceSelectForGroup(groupKey, null);
+    setRebootDaysMask(0);
+    document.getElementById('rebootTimeLocal').value = '';
+    updateRebootLastRunInfo(null);
+    loadRebootLogs(null);
+    document.getElementById('rebootDeviceSelect').focus();
+}
+
+function updateRebootLastRunInfo(schedule) {
+    const el = document.getElementById('rebootLastRunInfo');
+    const deleteBtn = document.getElementById('rebootDeleteBtn');
+
+    if (!schedule) {
+        el.style.display = 'none';
+        deleteBtn.style.display = 'none';
+        return;
+    }
+
+    deleteBtn.style.display = 'inline-block';
+    el.style.display = 'block';
+    if (schedule.lastRunAt) {
+        el.innerHTML = `<strong>Last run:</strong> ${formatRebootLastRun(schedule)}`;
+    } else {
+        el.textContent = 'No reboot runs recorded yet for this device.';
+    }
+}
+
+function renderRebootSchedulesTable() {
+    const tbody = document.getElementById('rebootSchedulesTableBody');
+    if (!tbody) return;
+
+    const list = Object.values(rebootSchedules).sort((a, b) =>
+        (a.deviceName || '').localeCompare(b.deviceName || '')
+    );
+
+    if (list.length === 0) {
+        tbody.innerHTML =
+            '<tr><td colspan="5" class="text-muted text-center py-3">No schedules yet. Use <strong>New schedule</strong> or the form below.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = list
+        .map((schedule) => {
+            const groupLabel = schedule.groupName ? `${escapeHtml(schedule.groupName)} — ` : '';
+            const typeLabel = schedule.onuType === 'red' ? 'Red' : 'Blue';
+            const enabledChecked = schedule.enabled ? 'checked' : '';
+            return `
+        <tr>
+            <td>
+                <div class="fw-medium">${groupLabel}${escapeHtml(schedule.deviceName)}</div>
+                <div class="text-muted small">${escapeHtml(schedule.deviceHost)} · ${typeLabel}</div>
+            </td>
+            <td>${escapeHtml(formatRebootDaysAndTime(schedule))}</td>
+            <td>
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" role="switch"
+                        id="rebootEnabled-${schedule.deviceId}"
+                        ${enabledChecked}
+                        onchange="toggleRebootScheduleEnabled(${schedule.deviceId}, this.checked)">
+                </div>
+            </td>
+            <td class="small">${formatRebootLastRun(schedule)}</td>
+            <td class="text-end text-nowrap">
+                <button type="button" class="btn btn-outline-primary btn-sm" onclick="editRebootSchedule(${schedule.deviceId})" title="Edit">
+                    <i class="bi bi-pencil"></i>
+                </button>
+                <button type="button" class="btn btn-outline-danger btn-sm" onclick="deleteRebootScheduleById(${schedule.deviceId})" title="Delete">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </td>
+        </tr>`;
+        })
+        .join('');
+}
+
+async function loadRebootLogs(deviceId) {
+    const section = document.getElementById('rebootLogsSection');
+    const tbody = document.getElementById('rebootLogsTableBody');
+    if (!section || !tbody) return;
+
+    if (!deviceId) {
+        section.style.display = 'none';
+        tbody.innerHTML = '';
+        return;
+    }
+
+    section.style.display = 'block';
+    tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center py-2">Loading history…</td></tr>';
+
+    try {
+        const response = await fetch(`/api/reboot-schedules/${deviceId}/logs`);
+        if (!response.ok) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-danger text-center py-2">Failed to load reboot history</td></tr>';
+            return;
+        }
+
+        const logs = await response.json();
+        if (logs.length === 0) {
+            tbody.innerHTML =
+                '<tr><td colspan="4" class="text-muted text-center py-2">No reboot runs recorded yet.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = logs
+            .map(
+                (log) => `
+            <tr>
+                <td class="text-nowrap small">${escapeHtml(log.startedAt || '—')}</td>
+                <td class="text-nowrap small">${escapeHtml(log.scheduledFor || '—')}</td>
+                <td>${rebootLogStatusBadge(log.status)}</td>
+                <td class="small">${escapeHtml(log.message || '')}</td>
+            </tr>`
+            )
+            .join('');
+    } catch (error) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-danger text-center py-2">Network error loading history</td></tr>';
+    }
+}
+
+function startNewRebootSchedule() {
+    document.getElementById('rebootSchedulerForm').reset();
+    document.getElementById('rebootScheduleEnabled').checked = true;
+    document.getElementById('rebootNotifyOnFailure').checked = true;
+    populateRebootGroupSelect('');
+    setRebootDevicePicker('', null);
+    setRebootDaysMask(0);
+    updateRebootLastRunInfo(null);
+    loadRebootLogs(null);
+    document.getElementById('rebootGroupSelect').focus();
+}
+
+function editRebootSchedule(deviceId) {
+    const device = devices.find((d) => d.id === deviceId || String(d.id) === String(deviceId));
+    const schedule = rebootSchedules[deviceId] || rebootSchedules[parseInt(deviceId, 10)];
+    let groupKey = '';
+
+    if (device) {
+        groupKey = getRebootGroupKeyForDevice(device);
+    } else if (schedule) {
+        groupKey = schedule.groupId ? String(schedule.groupId) : REBOOT_UNGROUPED_KEY;
+    }
+
+    setRebootDevicePicker(groupKey, deviceId);
+    onRebootDeviceSelected();
+    document.getElementById('rebootSchedulerForm').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function toggleRebootScheduleEnabled(deviceId, enabled) {
+    const schedule = rebootSchedules[deviceId];
+    if (!schedule) {
+        showToast('Schedule not found', 'warning');
+        await loadRebootSchedules();
+        renderRebootSchedulesTable();
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/reboot-schedules/${deviceId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                daysMask: schedule.daysMask,
+                timeLocal: schedule.timeLocal,
+                enabled,
+                notifyOnFailure: schedule.notifyOnFailure
+            })
+        });
+
+        if (response.ok) {
+            await loadRebootSchedules();
+            renderRebootSchedulesTable();
+            renderDevices();
+            const selectedId = document.getElementById('rebootDeviceSelect').value;
+            if (selectedId === String(deviceId)) {
+                const updated = await response.json();
+                document.getElementById('rebootScheduleEnabled').checked = updated.enabled;
+                updateRebootLastRunInfo(updated);
+            }
+            showToast(enabled ? 'Schedule enabled' : 'Schedule disabled', 'success');
+        } else {
+            const error = await response.json();
+            showToast(error.error || 'Failed to update schedule', 'danger');
+            renderRebootSchedulesTable();
+        }
+    } catch (error) {
+        showToast('Network error', 'danger');
+        renderRebootSchedulesTable();
+    }
+}
+
+async function deleteRebootScheduleById(deviceId) {
+    const schedule = rebootSchedules[deviceId];
+    const name = schedule ? schedule.deviceName : 'this device';
+    if (!confirm(`Delete reboot schedule for ${name}?`)) return;
+
+    try {
+        const response = await fetch(`/api/reboot-schedules/${deviceId}`, { method: 'DELETE' });
+        if (response.ok) {
+            await loadRebootSchedules();
+            renderRebootSchedulesTable();
+            renderDevices();
+            if (document.getElementById('rebootDeviceSelect').value === String(deviceId)) {
+                startNewRebootSchedule();
+            }
+            showToast('Schedule deleted', 'success');
+        } else {
+            const error = await response.json();
+            showToast(error.error || 'Failed to delete', 'danger');
+        }
+    } catch (error) {
+        showToast('Network error', 'danger');
+    }
+}
+
+async function openRebootSchedulerModal() {
+    populateRebootGroupSelect('');
+    await loadRebootSchedules();
+    renderRebootSchedulesTable();
+    startNewRebootSchedule();
+}
+
+async function onRebootDeviceSelected() {
+    const deviceId = document.getElementById('rebootDeviceSelect').value;
+    if (!deviceId) {
+        setRebootDaysMask(0);
+        document.getElementById('rebootTimeLocal').value = '';
+        updateRebootLastRunInfo(null);
+        loadRebootLogs(null);
+        return;
+    }
+
+    loadRebootLogs(deviceId);
+
+    const cached = rebootSchedules[deviceId] || rebootSchedules[parseInt(deviceId, 10)];
+    if (cached) {
+        setRebootDaysMask(cached.daysMask);
+        document.getElementById('rebootTimeLocal').value = cached.timeLocal;
+        document.getElementById('rebootScheduleEnabled').checked = cached.enabled;
+        document.getElementById('rebootNotifyOnFailure').checked = cached.notifyOnFailure;
+        updateRebootLastRunInfo(cached);
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/reboot-schedules/${deviceId}`);
+        if (response.status === 404) {
+            setRebootDaysMask(0);
+            document.getElementById('rebootTimeLocal').value = '03:00';
+            document.getElementById('rebootScheduleEnabled').checked = true;
+            document.getElementById('rebootNotifyOnFailure').checked = true;
+            updateRebootLastRunInfo(null);
+            return;
+        }
+
+        if (!response.ok) {
+            showToast('Failed to load schedule', 'danger');
+            return;
+        }
+
+        const schedule = await response.json();
+        rebootSchedules[schedule.deviceId] = schedule;
+        setRebootDaysMask(schedule.daysMask);
+        document.getElementById('rebootTimeLocal').value = schedule.timeLocal;
+        document.getElementById('rebootScheduleEnabled').checked = schedule.enabled;
+        document.getElementById('rebootNotifyOnFailure').checked = schedule.notifyOnFailure;
+        updateRebootLastRunInfo(schedule);
+    } catch (error) {
+        showToast('Network error', 'danger');
+    }
+}
+
+async function saveRebootSchedule() {
+    const groupKey = document.getElementById('rebootGroupSelect').value;
+    if (!groupKey) {
+        showToast('Please select a group', 'warning');
+        return;
+    }
+
+    const deviceId = document.getElementById('rebootDeviceSelect').value;
+    if (!deviceId) {
+        showToast('Please select an ONU', 'warning');
+        return;
+    }
+
+    const daysMask = buildRebootDaysMask();
+    if (daysMask === 0) {
+        showToast('Select at least one day', 'warning');
+        return;
+    }
+
+    const timeLocal = document.getElementById('rebootTimeLocal').value;
+    if (!timeLocal) {
+        showToast('Please set a time', 'warning');
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/reboot-schedules/${deviceId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                daysMask,
+                timeLocal,
+                enabled: document.getElementById('rebootScheduleEnabled').checked,
+                notifyOnFailure: document.getElementById('rebootNotifyOnFailure').checked
+            })
+        });
+
+        if (response.ok) {
+            const schedule = await response.json();
+            await loadRebootSchedules();
+            renderRebootSchedulesTable();
+            renderDevices();
+            updateRebootLastRunInfo(schedule);
+            await loadRebootLogs(deviceId);
+            showToast('Reboot schedule saved', 'success');
+        } else {
+            const error = await response.json();
+            showToast(error.error || 'Failed to save schedule', 'danger');
+        }
+    } catch (error) {
+        showToast('Network error', 'danger');
+    }
+}
+
+async function deleteRebootSchedule() {
+    const deviceId = document.getElementById('rebootDeviceSelect').value;
+    if (!deviceId) return;
+
+    if (!confirm('Delete reboot schedule for this device?')) return;
+
+    try {
+        const response = await fetch(`/api/reboot-schedules/${deviceId}`, { method: 'DELETE' });
+        if (response.ok) {
+            await loadRebootSchedules();
+            renderRebootSchedulesTable();
+            renderDevices();
+            startNewRebootSchedule();
+            showToast('Schedule deleted', 'success');
+        } else {
+            const error = await response.json();
+            showToast(error.error || 'Failed to delete', 'danger');
+        }
+    } catch (error) {
+        showToast('Network error', 'danger');
+    }
+}
+
+function renderRebootScheduleBadge(deviceId) {
+    const schedule = rebootSchedules[deviceId];
+    if (!schedule) return '';
+    const label = formatRebootScheduleLabel(schedule);
+    const badgeClass = schedule.enabled ? 'badge-purple' : 'badge-secondary';
+    const icon = schedule.enabled ? 'bi-calendar-check' : 'bi-calendar-x';
+    return `<span class="sensor-badge ${badgeClass}" title="${escapeHtml(label)}"><i class="bi ${icon}"></i> ${escapeHtml(label)}</span>`;
+}
+
+// Apply cached monitoring data to in-memory device state
+function syncStatusFromCache(cachedData, { onlyUnresolved = false } = {}) {
+    let mostRecentUpdate = null;
+    let changed = false;
+
+    for (const [deviceId, cache] of Object.entries(cachedData)) {
+        const id = parseInt(deviceId, 10);
+        const currentStatus = deviceStatuses[id];
+        const isUnresolved = currentStatus === undefined || currentStatus === 'checking';
+
+        if (onlyUnresolved && !isUnresolved) {
+            const updateTime = parseCacheTimestamp(cache.lastUpdated);
+            if (updateTime && (!mostRecentUpdate || updateTime > mostRecentUpdate)) {
+                mostRecentUpdate = updateTime;
+            }
+            continue;
+        }
+
+        if (!cache.status) {
+            continue;
+        }
+
+        const statusChanged = currentStatus !== cache.status;
+        if (statusChanged) {
+            deviceStatuses[id] = cache.status;
+        }
+
+        if (cache.data) {
+            monitoringData[id] = cache.data;
+        }
+
+        if (statusChanged || (isUnresolved && cache.status)) {
+            changed = true;
+        }
+
+        const updateTime = parseCacheTimestamp(cache.lastUpdated);
+        if (updateTime && (!mostRecentUpdate || updateTime > mostRecentUpdate)) {
+            mostRecentUpdate = updateTime;
+        }
+    }
+
+    return { changed, mostRecentUpdate };
+}
+
+function updateLastUpdatedFromCache(mostRecentUpdate) {
+    const storedTimestamp = localStorage.getItem('lastManualRefresh');
+    const manualRefreshTime = storedTimestamp ? new Date(storedTimestamp) : null;
+
+    if (manualRefreshTime && mostRecentUpdate) {
+        lastUpdatedTimestamp = manualRefreshTime > mostRecentUpdate ? manualRefreshTime : mostRecentUpdate;
+        if (mostRecentUpdate > manualRefreshTime) {
+            localStorage.removeItem('lastManualRefresh');
+        }
+    } else if (manualRefreshTime) {
+        lastUpdatedTimestamp = manualRefreshTime;
+    } else if (mostRecentUpdate) {
+        lastUpdatedTimestamp = mostRecentUpdate;
+    }
+
+    if (lastUpdatedTimestamp) {
+        updateLastUpdatedDisplay();
+    }
+}
+
+function hasUnresolvedDevices() {
+    return devices.some((device) => {
+        const status = deviceStatuses[device.id];
+        return status === undefined || status === 'checking';
+    });
+}
+
 // Load cached monitoring status from database
 async function loadCachedStatus() {
     try {
         const response = await fetch('/api/devices/cached-status');
         const cachedData = await response.json();
+        const { changed, mostRecentUpdate } = syncStatusFromCache(cachedData);
 
-        let mostRecentUpdate = null;
+        updateLastUpdatedFromCache(mostRecentUpdate);
 
-        // Update UI with cached data
-        for (const [deviceId, cache] of Object.entries(cachedData)) {
-            const id = parseInt(deviceId);
-            deviceStatuses[id] = cache.status;
-            if (cache.data) {
-                monitoringData[id] = cache.data;
-            }
-
-            // Track most recent update time
-            if (cache.lastUpdated) {
-                const updateTime = new Date(cache.lastUpdated);
-                if (!mostRecentUpdate || updateTime > mostRecentUpdate) {
-                    mostRecentUpdate = updateTime;
-                }
-            }
+        if (changed) {
+            renderDevices();
         }
-
-        // Check if we have a manual refresh timestamp stored in localStorage
-        const storedTimestamp = localStorage.getItem('lastManualRefresh');
-        let manualRefreshTime = storedTimestamp ? new Date(storedTimestamp) : null;
-
-        // Always use the most recent timestamp (whether from manual refresh or background monitoring)
-        if (manualRefreshTime && mostRecentUpdate) {
-            lastUpdatedTimestamp = manualRefreshTime > mostRecentUpdate ? manualRefreshTime : mostRecentUpdate;
-            // If background monitoring is more recent, clear the manual refresh timestamp
-            if (mostRecentUpdate > manualRefreshTime) {
-                localStorage.removeItem('lastManualRefresh');
-            }
-        } else if (manualRefreshTime) {
-            lastUpdatedTimestamp = manualRefreshTime;
-        } else if (mostRecentUpdate) {
-            lastUpdatedTimestamp = mostRecentUpdate;
-        }
-
-        if (lastUpdatedTimestamp) {
-            updateLastUpdatedDisplay();
-        }
-
-        // Re-render to show cached data
-        renderDevices();
     } catch (error) {
         console.error('Failed to load cached status:', error);
     }
@@ -378,12 +1074,18 @@ function renderDeviceCard(device) {
                     <button class="btn btn-info btn-mini" onclick="copyDevice(${device.id})" title="Copy">
                         <i class="bi bi-copy"></i>
                     </button>
+                    ${isRebootCapableDevice(device) ? `
+                    <button class="btn btn-outline-secondary btn-mini" onclick="openRebootConfirmModal(${device.id})" title="Reboot ONU">
+                        <i class="bi bi-arrow-repeat"></i>
+                    </button>
+                    ` : ''}
                     <button class="btn btn-danger btn-mini" onclick="deleteDevice(${device.id})" title="Delete">
                         <i class="bi bi-trash"></i>
                     </button>
                 </div>
             </div>
             <div class="device-card-body" id="badges-${device.id}">
+                ${renderRebootScheduleBadge(device.id)}
                 ${renderSensorBadges(device, status, data)}
             </div>
             <div class="device-card-footer">
@@ -665,50 +1367,52 @@ setInterval(() => {
     updateLastUpdatedDisplay();
 }, 10000);
 
+// Poll faster while devices are still waiting for their first status
+setInterval(async () => {
+    if (!hasUnresolvedDevices()) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/devices/cached-status');
+        const cachedData = await response.json();
+        const { changed, mostRecentUpdate } = syncStatusFromCache(cachedData, { onlyUnresolved: true });
+
+        if (changed) {
+            updateLastUpdatedFromCache(mostRecentUpdate);
+            renderDevices();
+        }
+    } catch (error) {
+        console.error('Failed to poll unresolved device status:', error);
+    }
+}, 5000);
+
 // Check for new background monitoring updates every 30 seconds
 setInterval(async () => {
     try {
         const response = await fetch('/api/devices/cached-status');
         const cachedData = await response.json();
+        const { changed, mostRecentUpdate } = syncStatusFromCache(cachedData);
+        const previousTimestamp = lastUpdatedTimestamp;
 
-        let mostRecentUpdate = null;
-        let hasNewData = false;
-
-        // Check for most recent update in cached data
-        for (const [deviceId, cache] of Object.entries(cachedData)) {
-            if (cache.lastUpdated) {
-                const updateTime = new Date(cache.lastUpdated);
-                if (!mostRecentUpdate || updateTime > mostRecentUpdate) {
-                    mostRecentUpdate = updateTime;
-                }
-            }
+        if (mostRecentUpdate) {
+            updateLastUpdatedFromCache(mostRecentUpdate);
         }
 
-        // If we found a more recent background update, refresh the UI
-        if (mostRecentUpdate && (!lastUpdatedTimestamp || mostRecentUpdate > lastUpdatedTimestamp)) {
-            hasNewData = true;
-            lastUpdatedTimestamp = mostRecentUpdate;
+        const hasNewBackgroundData =
+            mostRecentUpdate &&
+            (!previousTimestamp || mostRecentUpdate > previousTimestamp);
 
-            // Update device statuses and data
-            for (const [deviceId, cache] of Object.entries(cachedData)) {
-                const id = parseInt(deviceId);
-                deviceStatuses[id] = cache.status;
-                if (cache.data) {
-                    monitoringData[id] = cache.data;
-                }
+        if (changed || hasNewBackgroundData) {
+            if (hasNewBackgroundData) {
+                localStorage.removeItem('lastManualRefresh');
             }
-
-            // Clear manual refresh timestamp since background is newer
-            localStorage.removeItem('lastManualRefresh');
-
-            // Re-render to show updated data
             renderDevices();
-            updateLastUpdatedDisplay();
         }
     } catch (error) {
         console.error('Failed to check for background updates:', error);
     }
-}, 30000); // Check every 30 seconds
+}, 30000);
 
 // Refresh all devices status - uses sequential mode for better visual feedback
 async function refreshAllStatus() {
@@ -1307,6 +2011,10 @@ async function saveMikroTikDevice(deviceId, name, groupId) {
             }
             showToast(message, 'success');
             await loadDevices();
+            const targetId = deviceId || result.id;
+            if (targetId) {
+                refreshDevice(targetId, false);
+            }
         } else {
             const error = await response.json();
             showToast(error.error || 'Failed to save MikroTik device', 'danger');
@@ -1399,11 +2107,16 @@ async function saveONUDevice(deviceId, name, groupId, onuType) {
         }
 
         if (response.ok) {
+            const result = await response.json();
             const modal = bootstrap.Modal.getInstance(document.getElementById('addDeviceModal'));
             modal.hide();
             resetDeviceForm();
             showToast(deviceId ? 'Device updated successfully' : 'Device added successfully', 'success');
             await loadDevices();
+            const targetId = deviceId || result.id;
+            if (targetId) {
+                refreshDevice(targetId, false);
+            }
         } else {
             const error = await response.json();
             showToast(error.error || 'Failed to save device', 'danger');

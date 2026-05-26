@@ -341,6 +341,12 @@
             color: #4a2980;
         }
 
+        .sensor-badge.badge-secondary {
+            background: linear-gradient(to bottom, #e9ecef 0%, #ced4da 100%);
+            border-color: #6c757d;
+            color: #495057;
+        }
+
         .header-bar {
             background: white;
             padding: 8px 12px;
@@ -442,6 +448,11 @@
 
         .port-config-item .form-check-input {
             margin-top: 0;
+        }
+
+        .reboot-confirm-loading .spinner-border {
+            width: 2rem;
+            height: 2rem;
         }
 
         /* Loading spinner */
