@@ -6,7 +6,7 @@ const path = require('path');
 require('dotenv').config();
 
 const DatabaseManager = require('./lib/database');
-const { monitorONU, checkConnectivity, getEthernetPortSpeeds, monitorTendaONU, rebootONU } = require('./lib/onuMonitor');
+const { monitorONU, checkConnectivity, getEthernetPortSpeeds, monitorTendaONU, rebootONU, checkTendaConnectivity } = require('./lib/onuMonitor');
 const MikroTikMonitor = require('./lib/mikrotikMonitor');
 const MikroTikProvisioning = require('./lib/mikrotikProvisioning');
 const NotificationService = require('./lib/notificationService');
@@ -361,7 +361,9 @@ app.post('/api/devices/:id/check', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Device not found' });
     }
 
-    const isOnline = await checkConnectivity(device.host);
+    const isOnline = device.onuType === 'tenda'
+      ? await checkTendaConnectivity(device.host)
+      : await checkConnectivity(device.host);
     res.json({ online: isOnline });
   } catch (error) {
     res.status(500).json({ error: error.message });

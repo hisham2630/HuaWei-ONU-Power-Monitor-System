@@ -1699,21 +1699,23 @@ async function refreshDevice(deviceId, showMessage = true) {
             }
         } else {
             // ONU device monitoring
-            // Check connectivity first
-            const checkResponse = await fetch(`/api/devices/${deviceId}/check`, {
-                method: 'POST'
-            });
-            const checkData = await checkResponse.json();
+            // Tenda Boa firmware handles only one HTTP session at a time, so skip the
+            // separate connectivity probe and let monitor perform login directly.
+            if (device.onuType !== 'tenda') {
+                const checkResponse = await fetch(`/api/devices/${deviceId}/check`, {
+                    method: 'POST'
+                });
+                const checkData = await checkResponse.json();
 
-            if (!checkData.online) {
-                updateDeviceCard(deviceId, 'offline', null);
-                if (showMessage) {
-                    showToast('Device is offline', 'warning');
+                if (!checkData.online) {
+                    updateDeviceCard(deviceId, 'offline', null);
+                    if (showMessage) {
+                        showToast('Device is offline', 'warning');
+                    }
+                    return;
                 }
-                return;
             }
 
-            // Get monitoring data
             const response = await fetch(`/api/devices/${deviceId}/monitor`, {
                 method: 'POST'
             });
