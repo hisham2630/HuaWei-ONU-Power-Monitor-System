@@ -316,6 +316,9 @@ app.post('/api/devices/:id/monitor', requireAuth, async (req, res) => {
     } else {
       status = 'offline';
       data = null;
+      if (device.onuType === 'tenda') {
+        console.warn(`Tenda monitor failed for ${device.name} (${device.host}): ${result.error}`);
+      }
     }
     db.updateMonitoringCache(id, status, data);
 
