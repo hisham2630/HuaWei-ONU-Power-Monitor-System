@@ -21,6 +21,24 @@ function parseCacheTimestamp(value) {
     return Number.isNaN(utc.getTime()) ? null : utc;
 }
 
+function extractGroupSortNumber(name) {
+    const match = String(name || '').match(/\((\d+)\)/);
+    return match ? parseInt(match[1], 10) : null;
+}
+
+function compareGroupsByName(a, b) {
+    const numA = extractGroupSortNumber(a.name);
+    const numB = extractGroupSortNumber(b.name);
+
+    if (numA !== null && numB !== null && numA !== numB) {
+        return numA - numB;
+    }
+    if (numA !== null && numB === null) return -1;
+    if (numA === null && numB !== null) return 1;
+
+    return (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' });
+}
+
 // Check auth on load
 window.addEventListener('DOMContentLoaded', async () => {
     await checkAuth();
@@ -88,6 +106,7 @@ async function loadGroups() {
         const response = await fetch('/api/groups');
         if (response.ok) {
             groups = await response.json();
+            groups.sort(compareGroupsByName);
         } else {
             groups = [];
         }
