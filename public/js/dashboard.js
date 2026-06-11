@@ -941,7 +941,7 @@ function renderRebootScheduleBadge(deviceId) {
     const label = formatRebootScheduleLabel(schedule);
     const badgeClass = schedule.enabled ? 'badge-purple' : 'badge-secondary';
     const icon = schedule.enabled ? 'bi-calendar-check' : 'bi-calendar-x';
-    return `<span class="sensor-badge ${badgeClass}" title="${escapeHtml(label)}"><i class="bi ${icon}"></i> ${escapeHtml(label)}</span>`;
+    return `<span class="sensor-badge schedule-badge ${badgeClass}" title="${escapeHtml(label)}"><i class="bi ${icon}"></i> ${escapeHtml(label)}</span>`;
 }
 
 // Apply cached monitoring data to in-memory device state

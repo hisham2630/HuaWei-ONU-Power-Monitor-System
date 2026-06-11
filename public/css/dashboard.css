@@ -129,11 +129,12 @@
         .device-card {
             border: 1px solid #ddd;
             background: white;
-            width: 200px;
+            width: 270px;
             min-height: 80px;
             flex: 0 0 auto;
             display: flex;
             flex-direction: column;
+            overflow: hidden;
             transition: background-color 0.3s ease;
         }
 
@@ -201,6 +202,7 @@
             gap: 3px;
             justify-content: center;
             /* Center badges */
+            overflow: hidden;
         }
 
         .device-card-footer {
@@ -345,6 +347,19 @@
             background: linear-gradient(to bottom, #e9ecef 0%, #ced4da 100%);
             border-color: #6c757d;
             color: #495057;
+        }
+
+        .sensor-badge.schedule-badge {
+            flex: 1 1 100%;
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+            justify-content: center;
+            white-space: normal;
+            line-height: 1.25;
+            height: auto;
+            min-height: 18px;
+            padding: 2px 4px;
         }
 
         .header-bar {
