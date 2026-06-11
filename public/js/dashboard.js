@@ -5,6 +5,7 @@ let rebootSchedules = {};
 let monitoringData = {};
 let deviceStatuses = {};
 let collapsedGroups = new Set();
+let editingGroupId = null;
 let lastUpdatedTimestamp = null;
 let isRefreshingAll = false; // Flag to track if refresh all is in progress
 
@@ -118,14 +119,43 @@ function updateGroupsList() {
         return;
     }
 
-    list.innerHTML = groups.map(group => `
+    list.innerHTML = groups.map(group => {
+        if (editingGroupId === group.id) {
+            return `
+        <div class="list-group-item d-flex justify-content-between align-items-center gap-2">
+            <input type="text" class="form-control form-control-sm" id="renameGroupInput-${group.id}" value="${escapeHtml(group.name)}" onkeydown="handleRenameGroupKeydown(event, ${group.id})">
+            <div class="btn-group btn-group-sm flex-shrink-0">
+                <button class="btn btn-primary btn-sm" onclick="saveRenameGroup(${group.id})" title="Save">
+                    <i class="bi bi-check"></i>
+                </button>
+                <button class="btn btn-secondary btn-sm" onclick="cancelRenameGroup()" title="Cancel">
+                    <i class="bi bi-x"></i>
+                </button>
+            </div>
+        </div>`;
+        }
+
+        return `
         <div class="list-group-item d-flex justify-content-between align-items-center">
             <span>${escapeHtml(group.name)}</span>
-            <button class="btn btn-danger btn-sm" onclick="deleteGroup(${group.id})">
-                <i class="bi bi-trash"></i>
-            </button>
-        </div>
-    `).join('');
+            <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-primary btn-sm" onclick="startRenameGroup(${group.id})" title="Rename">
+                    <i class="bi bi-pencil"></i>
+                </button>
+                <button class="btn btn-danger btn-sm" onclick="deleteGroup(${group.id})" title="Delete">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+        </div>`;
+    }).join('');
+
+    if (editingGroupId) {
+        const input = document.getElementById(`renameGroupInput-${editingGroupId}`);
+        if (input) {
+            input.focus();
+            input.select();
+        }
+    }
 }
 
 // Add new group
@@ -157,6 +187,62 @@ async function addGroup() {
     }
 }
 
+function startRenameGroup(groupId) {
+    editingGroupId = groupId;
+    updateGroupsList();
+}
+
+function cancelRenameGroup() {
+    editingGroupId = null;
+    updateGroupsList();
+}
+
+function handleRenameGroupKeydown(event, groupId) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        saveRenameGroup(groupId);
+    } else if (event.key === 'Escape') {
+        event.preventDefault();
+        cancelRenameGroup();
+    }
+}
+
+async function saveRenameGroup(groupId) {
+    const input = document.getElementById(`renameGroupInput-${groupId}`);
+    const name = input?.value.trim();
+
+    if (!name) {
+        showToast('Please enter a group name', 'warning');
+        return;
+    }
+
+    const group = groups.find(g => g.id === groupId);
+    if (group && group.name === name) {
+        cancelRenameGroup();
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/groups/${groupId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+
+        if (response.ok) {
+            editingGroupId = null;
+            await loadGroups();
+            renderDevices();
+            showToast('Group renamed successfully', 'success');
+        } else {
+            const error = await response.json();
+            showToast(error.error || 'Failed to rename group', 'danger');
+        }
+    } catch (error) {
+        showToast('Network error', 'danger');
+    }
+}
+
 // Delete group
 async function deleteGroup(groupId) {
     if (!confirm('Are you sure you want to delete this group? Devices in this group will be moved to "No Group".')) {
@@ -169,6 +255,9 @@ async function deleteGroup(groupId) {
         });
 
         if (response.ok) {
+            if (editingGroupId === groupId) {
+                editingGroupId = null;
+            }
             await loadGroups();
             await loadDevices();
             showToast('Group deleted successfully', 'success');
