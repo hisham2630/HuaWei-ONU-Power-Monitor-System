@@ -839,8 +839,8 @@ function parseTimeLocal(timeLocal) {
 
 function assertRebootCapableOnuDevice(device) {
   if (!device) return 'Device not found';
-  if (!['blue', 'red'].includes(device.onuType)) {
-    return 'Reboot schedules are only supported for Blue and Red UI Huawei ONU devices';
+  if (!['blue', 'red', 'tenda'].includes(device.onuType)) {
+    return 'Reboot is only supported for Blue/Red UI Huawei and Tenda ONU devices';
   }
   return null;
 }
@@ -933,7 +933,9 @@ app.post('/api/devices/:deviceId/reboot', requireAuth, async (req, res) => {
       return res.status(400).json({ error: deviceError });
     }
 
-    const reachable = await checkConnectivity(device.host);
+    const reachable = device.onuType === 'tenda'
+      ? await checkTendaConnectivity(device.host)
+      : await checkConnectivity(device.host);
     if (!reachable) {
       return res.status(503).json({ error: 'Device unreachable' });
     }

@@ -329,8 +329,10 @@ function isRebootCapableDevice(device) {
     return (
         device.onuType === 'blue' ||
         device.onuType === 'red' ||
+        device.onuType === 'tenda' ||
         device.device_type === 'onu_blue' ||
-        device.device_type === 'onu_red'
+        device.device_type === 'onu_red' ||
+        device.device_type === 'onu_tenda'
     );
 }
 
@@ -383,7 +385,7 @@ function setRebootConfirmLoading(loading) {
 function openRebootConfirmModal(deviceId) {
     const device = devices.find((d) => d.id === deviceId);
     if (!device || !isRebootCapableDevice(device)) {
-        showToast('Reboot is only supported for Blue and Red UI Huawei ONU devices', 'warning');
+        showToast('Reboot is only supported for Blue/Red UI Huawei and Tenda ONU devices', 'warning');
         return;
     }
 

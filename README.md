@@ -83,7 +83,7 @@ The CLI supports two different ONU device types with distinct UI interfaces:
 
 **Red UI Mode**
 - Device: EG8120L
-- IP: oxygen-iq.net:50099
+- IP: configure in device settings (e.g. `192.168.111.1` or `your-onu-host:port`)
 - Command: `node index.js red`
 - Characteristics:
   - Uses AJAX endpoint for CSRF tokens (`/asp/GetRandCount.asp`)
@@ -163,7 +163,7 @@ The script performs the following steps:
 |---------|-------------------|------------------|
 | CSRF Token Retrieval | Extracted from HTML | Retrieved via AJAX endpoint |
 | Data Format | Hex-encoded (`\x2d23\x2e87`) | Plain decimal (`-23.28`) |
-| Access Method | Local IP (192.168.111.1) | Remote domain (oxygen-iq.net:50099) |
+| Access Method | Local IP (192.168.111.1) | Remote host (`your-onu-host:port`) |
 | Authentication Flow | HTML-based token extraction | AJAX-based token retrieval |
 | Port Speed Extraction | JavaScript array parsing | HTML table parsing |
 

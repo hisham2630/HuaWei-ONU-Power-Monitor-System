@@ -8,7 +8,7 @@ const ONU_CONFIGS = {
     color: 'Blue UI'
   },
   red: {
-    host: 'oxygen-iq.net:9901',
+    host: '192.168.111.1',
     name: 'EG8120L',
     color: 'Red UI'
   }
@@ -25,7 +25,7 @@ if (selectedONU === null) {
   console.log('  node index.js [onu-type]\n');
   console.log('ONU Types:');
   console.log('  blue    - HG8120C at 192.168.111.1 (Blue UI) [default]');
-  console.log('  red     - EG8120L at oxygen-iq.net:50099 (Red UI)');
+  console.log('  red     - EG8120L at configured host (Red UI)');
   console.log('  help    - Show this help message\n');
   console.log('Examples:');
   console.log('  node index.js          # Monitor Blue UI ONU (default)');
