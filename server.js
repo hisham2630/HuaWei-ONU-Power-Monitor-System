@@ -12,6 +12,7 @@ const MikroTikProvisioning = require('./lib/mikrotikProvisioning');
 const NotificationService = require('./lib/notificationService');
 const MonitoringScheduler = require('./lib/monitoringScheduler');
 const RebootScheduler = require('./lib/rebootScheduler');
+const { validateRebootScheduleBody } = require('./public/js/rebootScheduleHelpers');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -822,21 +823,6 @@ app.post('/api/devices/:deviceId/group/:groupId', requireAuth, (req, res) => {
 
 // ==================== REBOOT SCHEDULER API ====================
 
-function parseDaysMask(daysMask) {
-  const value = parseInt(daysMask, 10);
-  if (Number.isNaN(value) || value < 1 || value > 127) {
-    return null;
-  }
-  return value;
-}
-
-function parseTimeLocal(timeLocal) {
-  if (!timeLocal || !/^([01]\d|2[0-3]):[0-5]\d$/.test(timeLocal)) {
-    return null;
-  }
-  return timeLocal;
-}
-
 function assertRebootCapableOnuDevice(device) {
   if (!device) return 'Device not found';
   if (!['blue', 'red', 'tenda'].includes(device.onuType)) {
@@ -875,21 +861,12 @@ app.put('/api/reboot-schedules/:deviceId', requireAuth, (req, res) => {
       return res.status(400).json({ error: deviceError });
     }
 
-    const daysMask = parseDaysMask(req.body.daysMask);
-    const timeLocal = parseTimeLocal(req.body.timeLocal);
-    if (daysMask === null) {
-      return res.status(400).json({ error: 'Select at least one weekday' });
-    }
-    if (!timeLocal) {
-      return res.status(400).json({ error: 'Invalid time format (use HH:MM)' });
+    const validated = validateRebootScheduleBody(req.body);
+    if (validated.error) {
+      return res.status(400).json({ error: validated.error });
     }
 
-    const schedule = db.upsertRebootSchedule(deviceId, {
-      enabled: req.body.enabled !== false,
-      daysMask,
-      timeLocal,
-      notifyOnFailure: req.body.notifyOnFailure !== false
-    });
+    const schedule = db.upsertRebootSchedule(deviceId, validated.schedule);
 
     rebootScheduler.reloadSchedules();
     res.json(schedule);

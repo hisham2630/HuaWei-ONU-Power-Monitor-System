@@ -686,39 +686,69 @@
                             </select>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">Days of week</label>
-                            <div class="d-flex flex-wrap gap-3">
-                                <div class="form-check">
-                                    <input class="form-check-input reboot-day" type="checkbox" id="rebootDay0" value="1">
-                                    <label class="form-check-label" for="rebootDay0">Sun</label>
-                                </div>
-                                <div class="form-check">
-                                    <input class="form-check-input reboot-day" type="checkbox" id="rebootDay1" value="2">
-                                    <label class="form-check-label" for="rebootDay1">Mon</label>
-                                </div>
-                                <div class="form-check">
-                                    <input class="form-check-input reboot-day" type="checkbox" id="rebootDay2" value="4">
-                                    <label class="form-check-label" for="rebootDay2">Tue</label>
-                                </div>
-                                <div class="form-check">
-                                    <input class="form-check-input reboot-day" type="checkbox" id="rebootDay3" value="8">
-                                    <label class="form-check-label" for="rebootDay3">Wed</label>
-                                </div>
-                                <div class="form-check">
-                                    <input class="form-check-input reboot-day" type="checkbox" id="rebootDay4" value="16">
-                                    <label class="form-check-label" for="rebootDay4">Thu</label>
-                                </div>
-                                <div class="form-check">
-                                    <input class="form-check-input reboot-day" type="checkbox" id="rebootDay5" value="32">
-                                    <label class="form-check-label" for="rebootDay5">Fri</label>
-                                </div>
-                                <div class="form-check">
-                                    <input class="form-check-input reboot-day" type="checkbox" id="rebootDay6" value="64">
-                                    <label class="form-check-label" for="rebootDay6">Sat</label>
-                                </div>
+                            <label class="form-label d-block">Time mode</label>
+                            <div class="btn-group btn-group-sm" role="group" aria-label="Reboot time mode">
+                                <input type="radio" class="btn-check" name="rebootTimeMode" id="rebootTimeModeSame" value="same" checked autocomplete="off" onchange="onRebootTimeModeChange()">
+                                <label class="btn btn-outline-primary" for="rebootTimeModeSame">Same time</label>
+                                <input type="radio" class="btn-check" name="rebootTimeMode" id="rebootTimeModePerDay" value="perDay" autocomplete="off" onchange="onRebootTimeModeChange()">
+                                <label class="btn btn-outline-primary" for="rebootTimeModePerDay">Per day</label>
                             </div>
                         </div>
                         <div class="mb-3">
+                            <label class="form-label">Days of week</label>
+                            <div class="d-flex flex-column gap-2" id="rebootDaysList">
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="form-check mb-0">
+                                        <input class="form-check-input reboot-day" type="checkbox" id="rebootDay0" value="1" data-day="0" onchange="onRebootDayToggle(0)">
+                                        <label class="form-check-label" for="rebootDay0">Sun</label>
+                                    </div>
+                                    <input type="time" class="form-control form-control-sm reboot-day-time" id="rebootDayTime0" data-day="0" style="max-width: 8rem; display: none;">
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="form-check mb-0">
+                                        <input class="form-check-input reboot-day" type="checkbox" id="rebootDay1" value="2" data-day="1" onchange="onRebootDayToggle(1)">
+                                        <label class="form-check-label" for="rebootDay1">Mon</label>
+                                    </div>
+                                    <input type="time" class="form-control form-control-sm reboot-day-time" id="rebootDayTime1" data-day="1" style="max-width: 8rem; display: none;">
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="form-check mb-0">
+                                        <input class="form-check-input reboot-day" type="checkbox" id="rebootDay2" value="4" data-day="2" onchange="onRebootDayToggle(2)">
+                                        <label class="form-check-label" for="rebootDay2">Tue</label>
+                                    </div>
+                                    <input type="time" class="form-control form-control-sm reboot-day-time" id="rebootDayTime2" data-day="2" style="max-width: 8rem; display: none;">
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="form-check mb-0">
+                                        <input class="form-check-input reboot-day" type="checkbox" id="rebootDay3" value="8" data-day="3" onchange="onRebootDayToggle(3)">
+                                        <label class="form-check-label" for="rebootDay3">Wed</label>
+                                    </div>
+                                    <input type="time" class="form-control form-control-sm reboot-day-time" id="rebootDayTime3" data-day="3" style="max-width: 8rem; display: none;">
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="form-check mb-0">
+                                        <input class="form-check-input reboot-day" type="checkbox" id="rebootDay4" value="16" data-day="4" onchange="onRebootDayToggle(4)">
+                                        <label class="form-check-label" for="rebootDay4">Thu</label>
+                                    </div>
+                                    <input type="time" class="form-control form-control-sm reboot-day-time" id="rebootDayTime4" data-day="4" style="max-width: 8rem; display: none;">
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="form-check mb-0">
+                                        <input class="form-check-input reboot-day" type="checkbox" id="rebootDay5" value="32" data-day="5" onchange="onRebootDayToggle(5)">
+                                        <label class="form-check-label" for="rebootDay5">Fri</label>
+                                    </div>
+                                    <input type="time" class="form-control form-control-sm reboot-day-time" id="rebootDayTime5" data-day="5" style="max-width: 8rem; display: none;">
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="form-check mb-0">
+                                        <input class="form-check-input reboot-day" type="checkbox" id="rebootDay6" value="64" data-day="6" onchange="onRebootDayToggle(6)">
+                                        <label class="form-check-label" for="rebootDay6">Sat</label>
+                                    </div>
+                                    <input type="time" class="form-control form-control-sm reboot-day-time" id="rebootDayTime6" data-day="6" style="max-width: 8rem; display: none;">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mb-3" id="rebootSharedTimeWrap">
                             <label for="rebootTimeLocal" class="form-label">Time (24h)</label>
                             <input type="time" class="form-control" id="rebootTimeLocal" required>
                         </div>
@@ -839,6 +869,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/js/rebootScheduleHelpers.js"></script>
     <script src="/js/dashboard.js"></script>
 </body>
 </html>

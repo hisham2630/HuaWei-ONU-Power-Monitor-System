@@ -322,8 +322,8 @@ async function loadRebootSchedules() {
     }
 }
 
-const REBOOT_DAY_BITS = [1, 2, 4, 8, 16, 32, 64];
-const REBOOT_DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const REBOOT_DAY_BITS = DAY_BITS;
+const REBOOT_DAY_NAMES = DAY_NAMES;
 
 function isRebootCapableDevice(device) {
     return (
@@ -442,15 +442,103 @@ function setRebootDaysMask(mask) {
     });
 }
 
-function formatRebootDaysAndTime(schedule) {
-    if (!schedule) return '';
-    const days = [];
-    for (let i = 0; i < 7; i++) {
-        if (schedule.daysMask & REBOOT_DAY_BITS[i]) {
-            days.push(REBOOT_DAY_NAMES[i]);
+function isRebootPerDayMode() {
+    return document.getElementById('rebootTimeModePerDay').checked;
+}
+
+function setRebootTimeMode(usePerDay) {
+    document.getElementById('rebootTimeModeSame').checked = !usePerDay;
+    document.getElementById('rebootTimeModePerDay').checked = !!usePerDay;
+    syncRebootTimeModeUi(false);
+}
+
+function syncRebootTimeModeUi(copySharedIntoDays) {
+    const perDay = isRebootPerDayMode();
+    document.getElementById('rebootSharedTimeWrap').style.display = perDay ? 'none' : '';
+    document.getElementById('rebootTimeLocal').required = !perDay;
+    const shared = document.getElementById('rebootTimeLocal').value;
+
+    document.querySelectorAll('.reboot-day').forEach((cb) => {
+        const day = parseInt(cb.dataset.day, 10);
+        const timeInput = document.getElementById(`rebootDayTime${day}`);
+        if (!perDay) {
+            timeInput.style.display = 'none';
+            return;
         }
+        if (cb.checked) {
+            timeInput.style.display = '';
+            if (copySharedIntoDays && shared) {
+                timeInput.value = shared;
+            }
+        } else {
+            timeInput.style.display = 'none';
+            timeInput.value = '';
+        }
+    });
+}
+
+function onRebootTimeModeChange() {
+    // Same → Per day: copy shared into checked days. Per day → Same: keep shared field.
+    syncRebootTimeModeUi(isRebootPerDayMode());
+}
+
+function onRebootDayToggle(dayIndex) {
+    if (!isRebootPerDayMode()) return;
+    const cb = document.getElementById(`rebootDay${dayIndex}`);
+    const timeInput = document.getElementById(`rebootDayTime${dayIndex}`);
+    if (cb.checked) {
+        timeInput.style.display = '';
+        // New checked day in Per day: empty until set
+        timeInput.value = '';
+    } else {
+        timeInput.style.display = 'none';
+        timeInput.value = '';
     }
-    return `${days.join(', ')} at ${schedule.timeLocal}`;
+}
+
+function clearRebootDayTimes() {
+    document.querySelectorAll('.reboot-day-time').forEach((el) => {
+        el.value = '';
+        el.style.display = 'none';
+    });
+}
+
+function setRebootDayTimes(dayTimes) {
+    for (let i = 0; i < 7; i++) {
+        const el = document.getElementById(`rebootDayTime${i}`);
+        const t = dayTimes ? (dayTimes[i] ?? dayTimes[String(i)] ?? '') : '';
+        el.value = t;
+    }
+}
+
+function buildRebootDayTimes() {
+    const dayTimes = {};
+    document.querySelectorAll('.reboot-day:checked').forEach((cb) => {
+        const day = parseInt(cb.dataset.day, 10);
+        const t = document.getElementById(`rebootDayTime${day}`).value;
+        if (t) dayTimes[String(day)] = t;
+    });
+    return dayTimes;
+}
+
+function applyRebootScheduleToForm(schedule) {
+    if (!schedule) {
+        setRebootDaysMask(0);
+        setRebootTimeMode(false);
+        document.getElementById('rebootTimeLocal').value = '';
+        clearRebootDayTimes();
+        document.getElementById('rebootScheduleEnabled').checked = true;
+        document.getElementById('rebootNotifyOnFailure').checked = true;
+        updateRebootLastRunInfo(null);
+        return;
+    }
+    setRebootDaysMask(schedule.daysMask);
+    document.getElementById('rebootTimeLocal').value = schedule.timeLocal || '';
+    setRebootDayTimes(schedule.dayTimes);
+    setRebootTimeMode(!!schedule.usePerDay);
+    document.getElementById('rebootScheduleEnabled').checked = schedule.enabled;
+    document.getElementById('rebootNotifyOnFailure').checked = schedule.notifyOnFailure;
+    updateRebootLastRunInfo(schedule);
 }
 
 function formatRebootScheduleLabel(schedule) {
@@ -715,6 +803,8 @@ function startNewRebootSchedule() {
     populateRebootGroupSelect('');
     setRebootDevicePicker('', null);
     setRebootDaysMask(0);
+    clearRebootDayTimes();
+    setRebootTimeMode(false);
     updateRebootLastRunInfo(null);
     loadRebootLogs(null);
     document.getElementById('rebootGroupSelect').focus();
@@ -752,6 +842,8 @@ async function toggleRebootScheduleEnabled(deviceId, enabled) {
             body: JSON.stringify({
                 daysMask: schedule.daysMask,
                 timeLocal: schedule.timeLocal,
+                usePerDay: !!schedule.usePerDay,
+                dayTimes: schedule.dayTimes || null,
                 enabled,
                 notifyOnFailure: schedule.notifyOnFailure
             })
@@ -813,9 +905,7 @@ async function openRebootSchedulerModal() {
 async function onRebootDeviceSelected() {
     const deviceId = document.getElementById('rebootDeviceSelect').value;
     if (!deviceId) {
-        setRebootDaysMask(0);
-        document.getElementById('rebootTimeLocal').value = '';
-        updateRebootLastRunInfo(null);
+        applyRebootScheduleToForm(null);
         loadRebootLogs(null);
         return;
     }
@@ -824,11 +914,7 @@ async function onRebootDeviceSelected() {
 
     const cached = rebootSchedules[deviceId] || rebootSchedules[parseInt(deviceId, 10)];
     if (cached) {
-        setRebootDaysMask(cached.daysMask);
-        document.getElementById('rebootTimeLocal').value = cached.timeLocal;
-        document.getElementById('rebootScheduleEnabled').checked = cached.enabled;
-        document.getElementById('rebootNotifyOnFailure').checked = cached.notifyOnFailure;
-        updateRebootLastRunInfo(cached);
+        applyRebootScheduleToForm(cached);
         return;
     }
 
@@ -836,7 +922,9 @@ async function onRebootDeviceSelected() {
         const response = await fetch(`/api/reboot-schedules/${deviceId}`);
         if (response.status === 404) {
             setRebootDaysMask(0);
+            clearRebootDayTimes();
             document.getElementById('rebootTimeLocal').value = '03:00';
+            setRebootTimeMode(false);
             document.getElementById('rebootScheduleEnabled').checked = true;
             document.getElementById('rebootNotifyOnFailure').checked = true;
             updateRebootLastRunInfo(null);
@@ -850,11 +938,7 @@ async function onRebootDeviceSelected() {
 
         const schedule = await response.json();
         rebootSchedules[schedule.deviceId] = schedule;
-        setRebootDaysMask(schedule.daysMask);
-        document.getElementById('rebootTimeLocal').value = schedule.timeLocal;
-        document.getElementById('rebootScheduleEnabled').checked = schedule.enabled;
-        document.getElementById('rebootNotifyOnFailure').checked = schedule.notifyOnFailure;
-        updateRebootLastRunInfo(schedule);
+        applyRebootScheduleToForm(schedule);
     } catch (error) {
         showToast('Network error', 'danger');
     }
@@ -879,8 +963,25 @@ async function saveRebootSchedule() {
         return;
     }
 
-    const timeLocal = document.getElementById('rebootTimeLocal').value;
-    if (!timeLocal) {
+    const usePerDay = isRebootPerDayMode();
+    let timeLocal = document.getElementById('rebootTimeLocal').value;
+    let dayTimes = null;
+
+    if (usePerDay) {
+        dayTimes = buildRebootDayTimes();
+        for (let i = 0; i < 7; i++) {
+            if ((daysMask & REBOOT_DAY_BITS[i]) === 0) continue;
+            if (!dayTimes[String(i)]) {
+                showToast(`Please set a time for ${REBOOT_DAY_NAMES[i]}`, 'warning');
+                return;
+            }
+        }
+        // Keep shared field for Same-mode switch; fall back to first enabled day
+        if (!timeLocal) {
+            timeLocal = dayTimes[Object.keys(dayTimes)[0]];
+            document.getElementById('rebootTimeLocal').value = timeLocal;
+        }
+    } else if (!timeLocal) {
         showToast('Please set a time', 'warning');
         return;
     }
@@ -892,6 +993,8 @@ async function saveRebootSchedule() {
             body: JSON.stringify({
                 daysMask,
                 timeLocal,
+                usePerDay,
+                dayTimes,
                 enabled: document.getElementById('rebootScheduleEnabled').checked,
                 notifyOnFailure: document.getElementById('rebootNotifyOnFailure').checked
             })
