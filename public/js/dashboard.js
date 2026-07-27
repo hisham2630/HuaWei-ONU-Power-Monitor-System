@@ -5,6 +5,8 @@ let rebootSchedules = {};
 let monitoringData = {};
 let deviceStatuses = {};
 let collapsedGroups = new Set();
+/** Group keys that are expanded in the Reboot Scheduler schedules table (collapsed by default). */
+let expandedRebootScheduleGroups = new Set();
 let editingGroupId = null;
 let lastUpdatedTimestamp = null;
 let isRefreshingAll = false; // Flag to track if refresh all is in progress
@@ -704,29 +706,52 @@ function updateRebootLastRunInfo(schedule) {
     }
 }
 
-function renderRebootSchedulesTable() {
-    const tbody = document.getElementById('rebootSchedulesTableBody');
-    if (!tbody) return;
+function compareRebootDevicesByName(a, b) {
+    const nameA = a.deviceName || a.name || '';
+    const nameB = b.deviceName || b.name || '';
+    const numA = nameA.match(/^(\d+)/);
+    const numB = nameB.match(/^(\d+)/);
 
-    const list = Object.values(rebootSchedules).sort((a, b) =>
-        (a.deviceName || '').localeCompare(b.deviceName || '')
-    );
-
-    if (list.length === 0) {
-        tbody.innerHTML =
-            '<tr><td colspan="5" class="text-muted text-center py-3">No schedules yet. Use <strong>New schedule</strong> or the form below.</td></tr>';
-        return;
+    if (numA && numB) {
+        const firstNumA = parseInt(numA[1], 10);
+        const firstNumB = parseInt(numB[1], 10);
+        if (firstNumA !== firstNumB) {
+            return firstNumA - firstNumB;
+        }
     }
 
-    tbody.innerHTML = list
-        .map((schedule) => {
-            const groupLabel = schedule.groupName ? `${escapeHtml(schedule.groupName)} — ` : '';
-            const typeLabel = schedule.onuType === 'red' ? 'Red' : 'Blue';
-            const enabledChecked = schedule.enabled ? 'checked' : '';
-            return `
-        <tr>
+    return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+function getRebootScheduleGroupKey(schedule) {
+    if (!schedule) return REBOOT_UNGROUPED_KEY;
+    return schedule.groupId != null && schedule.groupId !== ''
+        ? String(schedule.groupId)
+        : REBOOT_UNGROUPED_KEY;
+}
+
+function getRebootScheduleGroupLabel(schedule) {
+    if (!schedule) return 'No Group';
+    return schedule.groupName || 'No Group';
+}
+
+function toggleRebootScheduleGroup(groupKey) {
+    if (expandedRebootScheduleGroups.has(groupKey)) {
+        expandedRebootScheduleGroups.delete(groupKey);
+    } else {
+        expandedRebootScheduleGroups.add(groupKey);
+    }
+    renderRebootSchedulesTable();
+}
+
+function renderRebootScheduleRow(schedule) {
+    const typeLabel =
+        schedule.onuType === 'red' ? 'Red' : schedule.onuType === 'tenda' ? 'Tenda' : 'Blue';
+    const enabledChecked = schedule.enabled ? 'checked' : '';
+    return `
+        <tr class="reboot-schedule-device-row">
             <td>
-                <div class="fw-medium">${groupLabel}${escapeHtml(schedule.deviceName)}</div>
+                <div class="fw-medium">${escapeHtml(schedule.deviceName)}</div>
                 <div class="text-muted small">${escapeHtml(schedule.deviceHost)} · ${typeLabel}</div>
             </td>
             <td>${escapeHtml(formatRebootDaysAndTime(schedule))}</td>
@@ -748,6 +773,62 @@ function renderRebootSchedulesTable() {
                 </button>
             </td>
         </tr>`;
+}
+
+function renderRebootSchedulesTable() {
+    const tbody = document.getElementById('rebootSchedulesTableBody');
+    if (!tbody) return;
+
+    const list = Object.values(rebootSchedules);
+
+    if (list.length === 0) {
+        tbody.innerHTML =
+            '<tr><td colspan="5" class="text-muted text-center py-3">No schedules yet. Use <strong>New schedule</strong> or the form below.</td></tr>';
+        return;
+    }
+
+    const byGroup = new Map();
+    list.forEach((schedule) => {
+        const key = getRebootScheduleGroupKey(schedule);
+        if (!byGroup.has(key)) {
+            byGroup.set(key, {
+                key,
+                name: getRebootScheduleGroupLabel(schedule),
+                schedules: []
+            });
+        }
+        byGroup.get(key).schedules.push(schedule);
+    });
+
+    const groupEntries = Array.from(byGroup.values());
+    const namedGroups = groupEntries
+        .filter((g) => g.key !== REBOOT_UNGROUPED_KEY)
+        .sort((a, b) => compareGroupsByName(a, b));
+    const ungrouped = groupEntries.find((g) => g.key === REBOOT_UNGROUPED_KEY);
+    const orderedGroups = ungrouped ? [...namedGroups, ungrouped] : namedGroups;
+
+    tbody.innerHTML = orderedGroups
+        .map((group) => {
+            const schedules = [...group.schedules].sort(compareRebootDevicesByName);
+            const isExpanded = expandedRebootScheduleGroups.has(group.key);
+            const enabledCount = schedules.filter((s) => s.enabled).length;
+            const header = `
+        <tr class="reboot-schedule-group-header" onclick="toggleRebootScheduleGroup('${group.key}')" role="button" aria-expanded="${isExpanded}">
+            <td colspan="5">
+                <div class="reboot-schedule-group-header-inner">
+                    <i class="bi bi-chevron-down reboot-schedule-group-toggle ${isExpanded ? '' : 'collapsed'}"></i>
+                    <i class="bi bi-folder me-1"></i>
+                    <span class="fw-semibold">${escapeHtml(group.name)}</span>
+                    <span class="text-muted small ms-2">${schedules.length} ONU${schedules.length !== 1 ? 's' : ''} · ${enabledCount} enabled</span>
+                </div>
+            </td>
+        </tr>`;
+
+            if (!isExpanded) {
+                return header;
+            }
+
+            return header + schedules.map(renderRebootScheduleRow).join('');
         })
         .join('');
 }
@@ -819,6 +900,11 @@ function editRebootSchedule(deviceId) {
         groupKey = getRebootGroupKeyForDevice(device);
     } else if (schedule) {
         groupKey = schedule.groupId ? String(schedule.groupId) : REBOOT_UNGROUPED_KEY;
+    }
+
+    if (groupKey) {
+        expandedRebootScheduleGroups.add(groupKey);
+        renderRebootSchedulesTable();
     }
 
     setRebootDevicePicker(groupKey, deviceId);
